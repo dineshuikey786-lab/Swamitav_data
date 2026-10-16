@@ -1,0 +1,6 @@
+{
+  "name": "Patwari Progress & Revenue Dashboard",
+  "description": "Comprehensive daily, weekly, and monthly progress monitoring dashboard for Patwaris with live Google Sheets sync, village registry tracking, and AI revenue analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

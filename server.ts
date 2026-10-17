@@ -26,6 +26,13 @@ const ai = new GoogleGenAI({
 
 import { INITIAL_CSV_RAW } from './src/data/initialData.ts';
 
+// Server-level in-memory store for active live Google Sheet sync
+let activeSyncedCsv = INITIAL_CSV_RAW;
+let activeSheetUrl = 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit (Tamia Circle Official Live Sync)';
+let activeSyncedAt = new Date().toISOString();
+let activeLatestDate = '15-10-2026';
+let activeRecordCount = 640;
+
 /**
  * Proxy endpoint to sync live Google Sheets or external CSVs without browser CORS errors.
  * If url is empty or 'default' or 'latest', serves the latest official Google Sheet dataset.
@@ -37,12 +44,12 @@ app.get('/api/sync-sheet', async (req, res) => {
     // If no URL or 'default' or 'latest', return the verified latest Tamia Circle Google Sheet dataset
     if (!rawUrl || rawUrl === 'default' || rawUrl === 'latest') {
       return res.json({
-        csv: INITIAL_CSV_RAW,
-        sourceUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit (Tamia Circle Official Live Sync)',
-        syncedAt: new Date().toISOString(),
+        csv: activeSyncedCsv,
+        sourceUrl: activeSheetUrl,
+        syncedAt: activeSyncedAt,
         isOfficial: true,
-        recordCount: 480,
-        latestDate: '13-10-2026',
+        recordCount: activeRecordCount,
+        latestDate: activeLatestDate,
       });
     }
 
@@ -70,10 +77,39 @@ app.get('/api/sync-sheet', async (req, res) => {
     }
 
     const csvText = await response.text();
-    return res.json({ csv: csvText, sourceUrl: fetchUrl, syncedAt: new Date().toISOString() });
+    // Persist as active dataset so all visitors see live updates immediately
+    activeSyncedCsv = csvText;
+    activeSheetUrl = fetchUrl;
+    activeSyncedAt = new Date().toISOString();
+
+    return res.json({
+      csv: csvText,
+      sourceUrl: fetchUrl,
+      syncedAt: activeSyncedAt,
+      latestDate: activeLatestDate,
+    });
   } catch (error: any) {
     console.error('Error fetching Google Sheet:', error);
     return res.status(500).json({ error: error.message || 'Failed to fetch spreadsheet' });
+  }
+});
+
+/**
+ * Endpoint to save synced dataset from client to server so all shared links reflect it
+ */
+app.post('/api/save-sync', express.json(), (req, res) => {
+  try {
+    const { csv, sourceUrl, latestDate, recordCount } = req.body || {};
+    if (csv && typeof csv === 'string') {
+      activeSyncedCsv = csv;
+      if (sourceUrl) activeSheetUrl = sourceUrl;
+      if (latestDate) activeLatestDate = latestDate;
+      if (recordCount) activeRecordCount = recordCount;
+      activeSyncedAt = new Date().toISOString();
+    }
+    return res.json({ success: true, syncedAt: activeSyncedAt, latestDate: activeLatestDate });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to save sync' });
   }
 });
 
@@ -82,11 +118,11 @@ app.get('/api/sync-sheet', async (req, res) => {
  */
 app.get('/api/latest-sheet-data', (_req, res) => {
   return res.json({
-    csv: INITIAL_CSV_RAW,
-    sourceUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
-    syncedAt: new Date().toISOString(),
-    recordCount: 480,
-    latestDate: '13-10-2026',
+    csv: activeSyncedCsv,
+    sourceUrl: activeSheetUrl,
+    syncedAt: activeSyncedAt,
+    recordCount: activeRecordCount,
+    latestDate: activeLatestDate,
   });
 });
 

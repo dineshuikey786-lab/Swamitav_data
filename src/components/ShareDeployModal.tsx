@@ -17,6 +17,10 @@ interface ShareDeployModalProps {
   isOpen: boolean;
   onClose: () => void;
   publicUrl: string;
+  sheetUrl?: string;
+  latestDate?: string;
+  recordsCount?: number;
+  patwarisCount?: number;
   userEmail?: string;
 }
 
@@ -24,17 +28,32 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   isOpen,
   onClose,
   publicUrl,
+  sheetUrl,
+  latestDate = '15-10-2026',
+  recordsCount = 640,
+  patwarisCount = 36,
   userEmail = 'dineshuikey786@gmail.com',
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [copiedType, setCopiedType] = useState<'live' | 'base' | null>(null);
+  const [linkMode, setLinkMode] = useState<'live' | 'base'>('live');
 
   if (!isOpen) return null;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(publicUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+  // Build live deep link with date and Google Sheet link if configured
+  const liveSyncUrl = sheetUrl && sheetUrl.trim()
+    ? `${publicUrl}?date=${latestDate}&sheet=${encodeURIComponent(sheetUrl.trim())}`
+    : `${publicUrl}?date=${latestDate}`;
+
+  const currentActiveUrl = linkMode === 'live' ? liveSyncUrl : publicUrl;
+
+  const handleCopy = (type: 'live' | 'base') => {
+    const urlToCopy = type === 'live' ? liveSyncUrl : publicUrl;
+    navigator.clipboard.writeText(urlToCopy);
+    setCopiedType(type);
+    setTimeout(() => setCopiedType(null), 3000);
   };
+
+  const whatsappMessage = `📊 पटवारी प्रगति एवं राजस्व निगरानी डैशबोर्ड (वृत्त: तामिया):\n📅 अद्यतन स्थिति: ${latestDate}\n📂 कुल रिकॉर्ड्स: ${recordsCount} (${patwarisCount} पटवारी)\n\nलाइव डैशबोर्ड देखने के लिए क्लिक करें:\n${currentActiveUrl}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -46,9 +65,9 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
               <Share2 className="h-5 w-5" />
             </div>
             <div>
-              <span>पब्लिक शेयरिंग एवं Vercel डिप्लॉयमेंट</span>
+              <span>पब्लिक शेयरिंग एवं लाइव लिंक जनरेटर</span>
               <p className="text-[11px] text-slate-400 font-normal">
-                डैशबोर्ड को आम जनता एवं अधिकारियों के साथ सार्वजनिक रूप से साझा करें
+                अधिकारियों एवं जनसामान्य के साथ नवीनतम 15-10-2026 लाइव डेटा साझा करें
               </p>
             </div>
           </div>
@@ -65,44 +84,70 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
 
         <div className="p-5 sm:p-6 space-y-6">
           {/* Section 1: Immediate Public Live URL */}
-          <div className="bg-gradient-to-br from-emerald-950/60 via-slate-900 to-teal-950/60 border border-emerald-700/60 rounded-xl p-4 sm:p-5 relative overflow-hidden">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-2.5 w-2.5 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                  </span>
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    सार्वजनिक लाइव लिंक (Currently Active & Live)
-                  </span>
-                </div>
-                <h3 className="text-sm font-semibold text-white">
-                  यह डैशबोर्ड पहले से ही इंटरनेट पर लाइव एवं पब्लिकली उपलब्ध है:
-                </h3>
-              </div>
-
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
-                Google Cloud Live
-              </span>
-            </div>
-
-            {/* URL Box */}
-            <div className="mt-3 bg-slate-950/90 border border-slate-700 rounded-xl p-2.5 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 overflow-hidden">
-                <Globe className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-                <span className="font-mono text-xs text-emerald-300 truncate select-all">
-                  {publicUrl}
+          <div className="bg-gradient-to-br from-emerald-950/70 via-slate-900 to-teal-950/70 border border-emerald-600/70 rounded-xl p-4 sm:p-5 relative overflow-hidden shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2.5 w-2.5 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                  सार्वजनिक लाइव लिंक (Live Data Link)
                 </span>
               </div>
 
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+                  दिनांक: <span className="font-mono font-bold">{latestDate}</span>
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium">
+                  <span className="font-mono font-bold">{recordsCount}</span> रिकॉर्ड्स
+                </span>
+              </div>
+            </div>
+
+            {/* Link Mode Selector */}
+            <div className="flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-xl mb-3 text-xs">
+              <button
+                type="button"
+                onClick={() => setLinkMode('live')}
+                className={`flex-1 py-1.5 px-3 rounded-lg font-semibold transition ${
+                  linkMode === 'live'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                ⚡ 15-10-2026 लाइव सिंक लिंक (अनुशंसित)
+              </button>
+              <button
+                type="button"
+                onClick={() => setLinkMode('base')}
+                className={`flex-1 py-1.5 px-3 rounded-lg font-semibold transition ${
+                  linkMode === 'base'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                🌐 सामान्य लिंक (Standard URL)
+              </button>
+            </div>
+
+            {/* URL Display Box */}
+            <div className="bg-slate-950/90 border border-slate-700 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 overflow-hidden flex-1">
+                <Globe className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                <span className="font-mono text-xs text-emerald-300 truncate select-all">
+                  {currentActiveUrl}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   type="button"
-                  onClick={handleCopy}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer shadow"
+                  onClick={() => handleCopy(linkMode)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow active:scale-95"
                 >
-                  {copied ? (
+                  {copiedType === linkMode ? (
                     <>
                       <Check className="h-3.5 w-3.5" />
                       <span>कॉपी हो गया!</span>
@@ -116,20 +161,32 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
                 </button>
 
                 <a
-                  href={publicUrl}
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappMessage)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow active:scale-95"
+                  title="WhatsApp पर शेयर करें"
+                >
+                  <span>WhatsApp</span>
+                </a>
+
+                <a
+                  href={currentActiveUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition"
-                  title="नए टैब में खोलें"
+                  title="नए टैब में खोलकर जांचें"
                 >
                   <ExternalLink className="h-4 w-4" />
                 </a>
               </div>
             </div>
 
-            <div className="mt-2 text-[11px] text-slate-400 leading-relaxed flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
-              <span>किसी लॉगिन की आवश्यकता नहीं है • कोई भी व्यक्ति या अधिकारी इस लिंक पर क्लिक करके सीधे डैशबोर्ड, चार्ट्स, PDF एवं एक्सेल रिपोर्ट्स देख सकता है।</span>
+            <div className="mt-3 text-[11px] text-slate-300 leading-relaxed flex items-center gap-1.5 bg-slate-900/40 p-2 rounded-lg border border-white/5">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+              <span>
+                इस लिंक को खोलने पर कोई भी अधिकारी या कर्मचारी बिना लॉगिन किए सीधे <strong>15-10-2026 का अद्यतन डेटा</strong>, सभी 160 गांव, 36 पटवारी, चार्ट्स एवं शासकीय PDF/एक्सेल डाउनलोड कर सकेंगे।
+              </span>
             </div>
           </div>
 

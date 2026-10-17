@@ -44,20 +44,20 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
-const STORAGE_KEY = 'patwari_dashboard_records_v2';
-const SHEET_URL_KEY = 'patwari_dashboard_sheet_url_v2';
+const STORAGE_KEY = 'patwari_dashboard_records_v4_15oct';
+const SHEET_URL_KEY = 'patwari_dashboard_sheet_url_v4';
 
 export default function App() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
-  // Load initial dataset from localStorage or fallback to updated master data (480 rows)
+  // Load initial dataset from localStorage or fallback to updated master data (640 rows, 15-10-2026)
   const [records, setRecords] = useState<PatwariRecord[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 480) return parsed;
+        if (Array.isArray(parsed) && parsed.length >= 640) return parsed;
       }
     } catch (e) {
       console.warn('Could not read cached records:', e);
@@ -66,6 +66,12 @@ export default function App() {
   });
 
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
+    // Check URL search params first, then localStorage
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlSheet = params.get('sheet') || params.get('sheetUrl');
+      if (urlSheet) return urlSheet;
+    } catch {}
     return localStorage.getItem(SHEET_URL_KEY) || '';
   });
 
@@ -80,8 +86,8 @@ export default function App() {
     latestDate?: string;
   } | null>({
     type: 'success',
-    text: 'Google Sheet मास्टर डेटा सक्रिय: सभी सेक्शन्स नवीनतम 13-10-2026 प्रगति स्थिति पर सिंक हैं।',
-    latestDate: '13-10-2026',
+    text: 'Google Sheet मास्टर डेटा सक्रिय: सभी सेक्शन्स नवीनतम 15-10-2026 प्रगति स्थिति पर सिंक हैं।',
+    latestDate: '15-10-2026',
   });
 
   // Modals / Drawers state
@@ -99,13 +105,18 @@ export default function App() {
   // Derived available dates (sorted chronologically)
   const availableDates = useMemo(() => {
     const dates = getAvailableDates(records);
-    return dates.length > 0 ? dates : ['11-10-2026', '12-10-2026', '13-10-2026'];
+    return dates.length > 0 ? dates : ['11-10-2026', '12-10-2026', '13-10-2026', '15-10-2026'];
   }, [records]);
 
-  // Selected date defaults to the latest available date (13-10-2026)
+  // Selected date defaults to the latest available date (15-10-2026)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlDate = params.get('date');
+      if (urlDate) return urlDate;
+    } catch {}
     const dates = getAvailableDates(parseCSVDataset(INITIAL_CSV_RAW));
-    return dates.length > 0 ? dates[dates.length - 1] : '13-10-2026';
+    return dates.length > 0 ? dates[dates.length - 1] : '15-10-2026';
   });
 
   // Keep selected date valid if dates list changes
@@ -184,10 +195,72 @@ export default function App() {
       text: `${messagePrefix} नवीनतम डेटा सफलतापूर्वक अपडेट हुआ: कुल ${parsed.length} रिकॉर्ड्स, ${uniquePatwaris} पटवारी, नवीनतम दिनांक: ${newestDate}`,
       latestDate: newestDate,
     });
-    return true;
-  }, [selectedDate]);
 
-  // Reset to default 480 master records
+    // Also persist to server store so all shared link viewers immediately get live data
+    fetch('/api/save-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        csv: csvText,
+        sourceUrl: sheetUrl,
+        latestDate: newestDate,
+        recordCount: parsed.length,
+      }),
+    }).catch(() => {});
+
+    return true;
+  }, [selectedDate, sheetUrl]);
+
+  // Check URL query parameters and sync server dataset on mount
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlSheet = params.get('sheet') || params.get('sheetUrl');
+      const urlDate = params.get('date');
+
+      if (urlSheet) {
+        setSheetUrl(urlSheet);
+        fetch(`/api/sync-sheet?url=${encodeURIComponent(urlSheet)}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && data.csv) {
+              handleSyncCsvData(data.csv, 'साझा Google Sheet लिंक से');
+              if (urlDate) setSelectedDate(urlDate);
+            }
+          })
+          .catch(() => {});
+      } else {
+        // Auto-fetch latest live server dataset on startup
+        fetch('/api/sync-sheet?url=latest')
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && data.csv) {
+              const parsed = parseCSVDataset(data.csv);
+              if (parsed.length > 0) {
+                setRecords(parsed);
+                const dates = getAvailableDates(parsed);
+                const newest = dates.length > 0 ? dates[dates.length - 1] : '15-10-2026';
+                setSelectedDate(urlDate || newest);
+                setSyncNotification({
+                  type: 'success',
+                  text: `Google Sheet लाइव डेटा सक्रिय: सभी सेक्शन्स नवीनतम ${urlDate || newest} स्थिति पर सिंक हैं।`,
+                  latestDate: urlDate || newest,
+                });
+              }
+            }
+          })
+          .catch(() => {});
+      }
+
+      if (urlDate) {
+        setSelectedDate(urlDate);
+      }
+    } catch (e) {
+      console.warn('URL param parse error:', e);
+    }
+  }, [handleSyncCsvData]);
+
+  // Reset to default 640 master records (11, 12, 13, 15 October)
   const handleResetToDefault = useCallback(() => {
     const defaultData = parseCSVDataset(INITIAL_CSV_RAW);
     setRecords(defaultData);
@@ -198,7 +271,7 @@ export default function App() {
     setLastUpdated(new Date());
     setSyncNotification({
       type: 'info',
-      text: 'मूल 480 रिकॉर्ड्स (11, 12, 13 अक्टूबर) सफलतापूर्वक पुनः स्थापित हुए।',
+      text: 'मास्टर 640 रिकॉर्ड्स (11, 12, 13, 15 अक्टूबर) सफलतापूर्वक पुनः स्थापित हुए।',
       latestDate: dates[dates.length - 1],
     });
     try {
@@ -715,6 +788,10 @@ export default function App() {
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         publicUrl={publicAppUrl}
+        sheetUrl={sheetUrl}
+        latestDate={selectedDate}
+        recordsCount={records.length}
+        patwarisCount={allPatwaris.length}
         userEmail="dineshuikey786@gmail.com"
       />
     </div>

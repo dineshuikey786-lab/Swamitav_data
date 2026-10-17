@@ -3,6 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        try {
+          if (typeof window !== 'undefined') {
+            var currentFetch = window.fetch ? window.fetch.bind(window) : null;
+            try {
+              Object.defineProperty(window, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function() {
+                  return currentFetch;
+                },
+                set: function(fn) {
+                  currentFetch = fn;
+                }
+              });
+            } catch (err1) {
+              try {
+                if (window.Window && window.Window.prototype) {
+                  Object.defineProperty(window.Window.prototype, 'fetch', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() {
+                      return currentFetch;
+                    },
+                    set: function(fn) {
+                      currentFetch = fn;
+                    }
+                  });
+                }
+              } catch (err2) {}
+            }
+
+            // Suppress third-party extension errors from propagating to app
+            window.addEventListener('error', function(event) {
+              if (event && event.filename && event.filename.indexOf('chrome-extension://') !== -1) {
+                event.preventDefault();
+              }
+            }, true);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <title>Patwari Progress &amp; Revenue Dashboard</title>
     <meta name="description" content="Comprehensive daily, weekly, and monthly progress monitoring dashboard for Patwaris with live Google Sheets sync, village registry tracking, and AI revenue analysis." />
     <meta property="og:title" content="Patwari Progress &amp; Revenue Dashboard" />

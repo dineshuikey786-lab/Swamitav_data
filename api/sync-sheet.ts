@@ -20,8 +20,8 @@ export default async function handler(req: any, res: any) {
         sourceUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
         syncedAt: new Date().toISOString(),
         isOfficial: true,
-        recordCount: 640,
-        latestDate: '15-10-2026',
+        recordCount: 480,
+        latestDate: '13-10-2026',
       });
     }
 

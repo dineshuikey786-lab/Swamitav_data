@@ -422,15 +422,15 @@ export const PatwariDateSummaryMatrix: React.FC<PatwariDateSummaryMatrixProps> =
 
                   {/* Village count & Plots */}
                   <td
-                    className={`py-2.5 px-3 text-center font-mono ${
+                    className={`py-2.5 px-3 text-center text-xs ${
                       isDark ? 'text-slate-400' : 'text-slate-500'
                     }`}
                   >
-                    <span className={isDark ? 'text-white font-medium' : 'text-slate-800 font-semibold'}>
+                    <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>
                       {row.villagesCount}
                     </span>{' '}
-                    ग्राम •{' '}
-                    <span className={isDark ? 'text-slate-300' : 'text-slate-600'}>
+                    <span className="font-sans">ग्राम</span> •{' '}
+                    <span className={`font-mono ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                       {row.totalPlots}
                     </span>
                   </td>

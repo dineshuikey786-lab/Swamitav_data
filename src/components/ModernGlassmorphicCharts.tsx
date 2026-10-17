@@ -545,10 +545,9 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
                         fontSize="11"
                         fontWeight="bold"
                         fill={isDark ? '#f8fafc' : '#0f172a'}
-                        className="font-mono"
                       >
-                        {rawVal}
-                        <tspan fontSize="9" fontWeight="normal" fill={isDark ? '#94a3b8' : '#64748b'}>
+                        <tspan className="font-mono">{rawVal}</tspan>
+                        <tspan fontSize="9" fontWeight="normal" fill={isDark ? '#94a3b8' : '#64748b'} className="font-sans">
                           {' '}({item.villagesCount} ग्राम)
                         </tspan>
                       </text>
@@ -1084,8 +1083,8 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
                   पंजीयन प्रारंभ
                 </span>
               </div>
-              <div className={`text-[11px] font-mono ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                {trendData.length} दिनांक डेटा उपलब्ध
+              <div className={`text-[11px] font-sans font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span className="font-mono font-bold text-emerald-400">{trendData.length}</span> दिवस का तुलनात्मक डेटा
               </div>
             </div>
           </div>
@@ -1226,7 +1225,9 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-black font-mono text-emerald-400">{kpis.completed}</div>
-                    <div className="text-[10px] font-mono text-slate-400">{kpis.pctCompleted}% लक्ष्य</div>
+                    <div className="text-[10px] text-slate-400 font-medium font-sans">
+                      <span className="font-mono font-bold">{kpis.pctCompleted}%</span> लक्ष्य
+                    </div>
                   </div>
                 </div>
 
@@ -1249,7 +1250,9 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-black font-mono text-indigo-400">{kpis.patwariVerification}</div>
-                    <div className="text-[10px] font-mono text-slate-400">{verificationPct.toFixed(1)}% लक्ष्य</div>
+                    <div className="text-[10px] text-slate-400 font-medium font-sans">
+                      <span className="font-mono font-bold">{verificationPct.toFixed(1)}%</span> लक्ष्य
+                    </div>
                   </div>
                 </div>
 
@@ -1266,7 +1269,9 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                       सत्यापन बैकलॉग
                     </span>
-                    <span className="font-mono font-bold">{kpis.pendingVerification} लंबित</span>
+                    <span className="font-medium font-sans">
+                      <span className="font-mono font-bold">{kpis.pendingVerification}</span> लंबित
+                    </span>
                   </div>
                 )}
               </div>

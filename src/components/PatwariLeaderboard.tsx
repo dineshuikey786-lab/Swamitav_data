@@ -78,13 +78,13 @@ export const PatwariLeaderboard: React.FC<PatwariLeaderboardProps> = ({
           <h2 className={`text-base font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
             <span>पटवारी प्रगति लीडरबोर्ड (Patwari Progress &amp; Rankings)</span>
             <span
-              className={`text-xs font-mono px-2 py-0.5 rounded-full border ${
+              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
                 isDark
                   ? 'bg-slate-800 text-slate-300 border-slate-700'
                   : 'bg-slate-100 text-slate-700 border-slate-300'
               }`}
             >
-              {summaries.length} कुल पटवारी
+              <span className="font-mono font-bold">{summaries.length}</span> कुल पटवारी
             </span>
           </h2>
           <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>

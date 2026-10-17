@@ -192,7 +192,7 @@ export const Header: React.FC<HeaderProps> = ({
                 id="date-select"
                 value={selectedDate}
                 onChange={(e) => onSelectDate(e.target.value)}
-                className={`bg-transparent font-mono text-xs focus:outline-none cursor-pointer pr-2 ${
+                className={`bg-transparent font-sans text-xs focus:outline-none cursor-pointer pr-2 font-medium ${
                   isDark ? 'text-white' : 'text-slate-900'
                 }`}
               >

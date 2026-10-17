@@ -29,8 +29,8 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   onClose,
   publicUrl,
   sheetUrl,
-  latestDate = '15-10-2026',
-  recordsCount = 640,
+  latestDate = '13-10-2026',
+  recordsCount = 480,
   patwarisCount = 36,
   userEmail = 'dineshuikey786@gmail.com',
 }) => {
@@ -67,7 +67,7 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
             <div>
               <span>पब्लिक शेयरिंग एवं लाइव लिंक जनरेटर</span>
               <p className="text-[11px] text-slate-400 font-normal">
-                अधिकारियों एवं जनसामान्य के साथ नवीनतम 15-10-2026 लाइव डेटा साझा करें
+                अधिकारियों एवं जनसामान्य के साथ नवीनतम {latestDate} लाइव डेटा साझा करें
               </p>
             </div>
           </div>
@@ -117,7 +117,7 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                ⚡ 15-10-2026 लाइव सिंक लिंक (अनुशंसित)
+                ⚡ {latestDate} लाइव सिंक लिंक (अनुशंसित)
               </button>
               <button
                 type="button"
@@ -185,7 +185,7 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
             <div className="mt-3 text-[11px] text-slate-300 leading-relaxed flex items-center gap-1.5 bg-slate-900/40 p-2 rounded-lg border border-white/5">
               <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
               <span>
-                इस लिंक को खोलने पर कोई भी अधिकारी या कर्मचारी बिना लॉगिन किए सीधे <strong>15-10-2026 का अद्यतन डेटा</strong>, सभी 160 गांव, 36 पटवारी, चार्ट्स एवं शासकीय PDF/एक्सेल डाउनलोड कर सकेंगे।
+                इस लिंक को खोलने पर कोई भी अधिकारी या कर्मचारी बिना लॉगिन किए सीधे <strong>{latestDate} का अद्यतन डेटा</strong>, सभी 160 गांव, 36 पटवारी, चार्ट्स एवं शासकीय PDF/एक्सेल डाउनलोड कर सकेंगे।
               </span>
             </div>
           </div>

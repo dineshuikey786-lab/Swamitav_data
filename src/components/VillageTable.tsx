@@ -231,13 +231,13 @@ export const VillageTable: React.FC<VillageTableProps> = ({
               <span>ग्रामवार राजस्व प्रगति रजिस्टर (Village-wise Register)</span>
             </h2>
             <span
-              className={`text-xs font-mono px-2 py-0.5 rounded-full border ${
+              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
                 isDark
                   ? 'bg-slate-800 text-slate-300 border-slate-700'
                   : 'bg-slate-100 text-slate-700 border-slate-200 font-semibold'
               }`}
             >
-              {filtered.length} ग्राम • {patwariGroups.length} पटवारी
+              <span className="font-mono font-bold">{filtered.length}</span> ग्राम • <span className="font-mono font-bold">{patwariGroups.length}</span> पटवारी
             </span>
           </div>
           <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -499,13 +499,13 @@ export const VillageTable: React.FC<VillageTableProps> = ({
                           {group.patwariName}
                         </h3>
                         <span
-                          className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                          className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${
                             isDark
                               ? 'bg-slate-800 text-slate-300 border-slate-700'
                               : 'bg-slate-100 text-slate-700 border-slate-200'
                           }`}
                         >
-                          {group.villages.length} ग्राम
+                          <span className="font-mono font-bold">{group.villages.length}</span> ग्राम
                         </span>
                       </div>
                       <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>

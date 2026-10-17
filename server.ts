@@ -30,8 +30,8 @@ import { INITIAL_CSV_RAW } from './src/data/initialData.ts';
 let activeSyncedCsv = INITIAL_CSV_RAW;
 let activeSheetUrl = 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit (Tamia Circle Official Live Sync)';
 let activeSyncedAt = new Date().toISOString();
-let activeLatestDate = '15-10-2026';
-let activeRecordCount = 640;
+let activeLatestDate = '13-10-2026';
+let activeRecordCount = 480;
 
 /**
  * Proxy endpoint to sync live Google Sheets or external CSVs without browser CORS errors.

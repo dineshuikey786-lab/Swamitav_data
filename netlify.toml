@@ -1,0 +1,44 @@
+# Netlify configuration for Patwari Progress & Revenue Dashboard
+# https://docs.netlify.com/configure-builds/file-based-configuration/
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Redirect API calls to Netlify Serverless Functions
+[[redirects]]
+  from = "/api/sync-sheet"
+  to = "/.netlify/functions/sync-sheet"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/analyze"
+  to = "/.netlify/functions/gemini-analyze"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini-audit"
+  to = "/.netlify/functions/gemini-analyze"
+  status = 200
+
+[[redirects]]
+  from = "/api/save-sync"
+  to = "/.netlify/functions/save-sync"
+  status = 200
+
+# Fallback for React SPA routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

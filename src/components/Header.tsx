@@ -317,20 +317,20 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="sm:hidden">PDF</span>
             </button>
 
-            {/* Public Share & Vercel Deploy Button */}
+            {/* Public Share & Netlify / GitHub Deploy Button */}
             <button
               type="button"
               onClick={onOpenShareModal}
-              title="पब्लिक लाइव लिंक कॉपी करें अथवा Vercel पर डिप्लॉय करें"
+              title="Netlify (.netlify.app), GitHub एवं पब्लिक लिंक डिप्लॉयमेंट"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
                 isDark
-                  ? 'bg-indigo-950/50 hover:bg-indigo-900/70 text-indigo-300 border-indigo-700/80 shadow-sm'
-                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-300 shadow-sm'
+                  ? 'bg-teal-950/50 hover:bg-teal-900/70 text-teal-300 border-teal-700/80 shadow-sm'
+                  : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-300 shadow-sm'
               }`}
             >
-              <Share2 className="h-3.5 w-3.5 text-indigo-500" />
-              <span className="hidden sm:inline">शेयर / Vercel</span>
-              <span className="sm:hidden">शेयर</span>
+              <Share2 className="h-3.5 w-3.5 text-teal-500" />
+              <span className="hidden sm:inline">डिप्लॉय / Netlify</span>
+              <span className="sm:hidden">Netlify</span>
             </button>
           </div>
         </div>

@@ -145,29 +145,99 @@ export function splitCSVLine(text: string): string[] {
   return result;
 }
 
+const MONTH_NAME_MAP: Record<string, string> = {
+  jan: '01', january: '01', जनवरी: '01',
+  feb: '02', february: '02', फरवरी: '02',
+  mar: '03', march: '03', मार्च: '03',
+  apr: '04', april: '04', अप्रैल: '04',
+  may: '05', मई: '05',
+  jun: '06', june: '06', जून: '06',
+  jul: '07', july: '07', जुलाई: '07',
+  aug: '08', august: '08', अगस्त: '08',
+  sep: '09', sept: '09', september: '09', सितंबर: '09', सितम्बर: '09',
+  oct: '10', october: '10', अक्टूबर: '10', अक्तूबर: '10',
+  nov: '11', november: '11', नवंबर: '11', नवम्बर: '11',
+  dec: '12', december: '12', दिसंबर: '12', दिसम्बर: '12',
+};
+
+/**
+ * Advances a DD-MM-YYYY date string by +1 calendar day.
+ */
+export function incrementDateByOneDay(dateStr: string): string {
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) {
+    return dateStr;
+  }
+  const [day, month, year] = parts;
+  const dt = new Date(Date.UTC(year, month - 1, day + 1));
+  const nextD = String(dt.getUTCDate()).padStart(2, '0');
+  const nextM = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const nextY = String(dt.getUTCFullYear());
+  return `${nextD}-${nextM}-${nextY}`;
+}
+
 /**
  * Normalizes date string into DD-MM-YYYY format.
- * Supports: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, YYYY/MM/DD, DD.MM.YYYY
+ * Supports: DD-MM-YYYY, DD/MM/YYYY, MM/DD/YYYY (when DD > 12), YYYY-MM-DD, DD-MMM-YYYY, timestamps, and 2-digit years.
  */
 export function normalizeDateString(rawDate: string): string {
-  if (!rawDate) return '13-10-2026';
-  const clean = rawDate.trim().replace(/['"]/g, '');
+  if (!rawDate) return '16-10-2026';
+  const cleanFull = rawDate.trim().replace(/['"]/g, '');
+  if (!cleanFull) return '16-10-2026';
 
-  // Check YYYY-MM-DD or YYYY/MM/DD
-  const ymdMatch = clean.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  // Strip optional time component (e.g. "16/10/2026 10:30:00" or ISO "2026-10-16T00:00:00")
+  const datePartOnly = cleanFull.split(/[T\s]/)[0];
+
+  // 1. Check YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = datePartOnly.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch;
+    const mNum = parseInt(m, 10);
+    const dNum = parseInt(d, 10);
+    if (mNum > 12 && dNum <= 12) {
+      return `${m.padStart(2, '0')}-${d.padStart(2, '0')}-${y}`;
+    }
     return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
   }
 
-  // Check DD-MM-YYYY or DD/MM/YYYY
-  const dmyMatch = clean.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  // 2. Check DD-MM-YYYY, DD/MM/YYYY, MM/DD/YYYY, or 2-digit year DD/MM/YY
+  const dmyMatch = datePartOnly.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyMatch) {
-    const [, d, m, y] = dmyMatch;
-    return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+    let [, first, second, y] = dmyMatch;
+    if (y.length === 2) {
+      y = `20${y}`;
+    }
+    const firstNum = parseInt(first, 10);
+    const secondNum = parseInt(second, 10);
+    // If second number > 12 and first <= 12, it is US MM/DD/YYYY format (e.g. 10/16/2026 -> 16-10-2026)
+    if (secondNum > 12 && firstNum <= 12) {
+      return `${second.padStart(2, '0')}-${first.padStart(2, '0')}-${y}`;
+    }
+    return `${first.padStart(2, '0')}-${second.padStart(2, '0')}-${y}`;
   }
 
-  return clean;
+  // 3. Check textual month formats: "16 Oct 2026", "16-Oct-2026", "Oct 16, 2026"
+  const dMonthY = cleanFull.match(/^(\d{1,2})[\s\-/.]+([A-Za-z\u0900-\u097F]+)[\s\-/.,]+(\d{2,4})$/);
+  if (dMonthY) {
+    let [, d, monStr, y] = dMonthY;
+    const mappedMonth = MONTH_NAME_MAP[monStr.toLowerCase()];
+    if (mappedMonth) {
+      if (y.length === 2) y = `20${y}`;
+      return `${d.padStart(2, '0')}-${mappedMonth}-${y}`;
+    }
+  }
+
+  const monthDY = cleanFull.match(/^([A-Za-z\u0900-\u097F]+)[\s\-/.]+(\d{1,2})[\s\-/.,]+(\d{2,4})$/);
+  if (monthDY) {
+    let [, monStr, d, y] = monthDY;
+    const mappedMonth = MONTH_NAME_MAP[monStr.toLowerCase()];
+    if (mappedMonth) {
+      if (y.length === 2) y = `20${y}`;
+      return `${d.padStart(2, '0')}-${mappedMonth}-${y}`;
+    }
+  }
+
+  return cleanFull;
 }
 
 /**
@@ -215,6 +285,8 @@ export function parseCSVDataset(csvText: string): PatwariRecord[] {
   if (colDate === -1) colDate = 12;
 
   const records: PatwariRecord[] = [];
+  let currentInferredDate = '13-10-2026';
+  const seenVillagesInCurrentDate = new Set<string>();
 
   for (let i = 1; i < lines.length; i++) {
     const rawLine = lines[i].trim();
@@ -245,8 +317,28 @@ export function parseCSVDataset(csvText: string): PatwariRecord[] {
     }
     pctCompleted = Math.round(pctCompleted * 100) / 100;
 
-    const rawDate = (colDate >= 0 && parts[colDate]) || '13-10-2026';
-    const date = normalizeDateString(rawDate);
+    const villageKey = (lgdCode || village).trim();
+    const rawDateCell = colDate >= 0 && parts[colDate] ? parts[colDate].trim().replace(/['"]/g, '') : '';
+
+    let date: string;
+    if (rawDateCell) {
+      date = normalizeDateString(rawDateCell);
+      if (date !== currentInferredDate) {
+        currentInferredDate = date;
+        seenVillagesInCurrentDate.clear();
+      }
+      seenVillagesInCurrentDate.add(villageKey);
+    } else {
+      // If Google Sheets gviz/tq stripped mixed-format dates (e.g. DD > 12 like 13/10/2026..16/10/2026),
+      // advance +1 day whenever a new 160-village cycle starts (villageKey repeats in current date block).
+      if (seenVillagesInCurrentDate.has(villageKey)) {
+        currentInferredDate = incrementDateByOneDay(currentInferredDate);
+        seenVillagesInCurrentDate.clear();
+      }
+      seenVillagesInCurrentDate.add(villageKey);
+      date = currentInferredDate;
+    }
+
     const id = `${lgdCode || village}-${date}-${sno}`;
 
     records.push({
@@ -267,7 +359,13 @@ export function parseCSVDataset(csvText: string): PatwariRecord[] {
     });
   }
 
-  return records;
+  const dedupedMap = new Map<string, PatwariRecord>();
+  for (const rec of records) {
+    const key = `${(rec.lgdCode || rec.village).trim()}::${rec.date}`;
+    dedupedMap.set(key, rec);
+  }
+
+  return Array.from(dedupedMap.values());
 }
 
 /**
@@ -951,3 +1049,151 @@ export function calculateStatusSlices(
     },
   ];
 }
+
+/**
+ * Escapes a single CSV field if it contains commas, quotes, or newlines.
+ */
+function escapeCsvField(val: string | number): string {
+  const str = String(val ?? '');
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Serializes PatwariRecord[] back into the canonical CSV format for saving to initialData.ts or exporting to GitHub.
+ */
+export function serializeRecordsToCsv(records: PatwariRecord[]): string {
+  const header =
+    'S.No,Village ▲,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date';
+  const rows = records.map((r, idx) => {
+    const sno = r.sno || idx + 1;
+    const pctRatio = r.plots > 0 ? (r.completed / r.plots).toFixed(4) : '0';
+    return [
+      sno,
+      escapeCsvField(r.village),
+      escapeCsvField(r.lgdCode),
+      escapeCsvField(r.patwariName),
+      r.plots,
+      r.beneficiaries,
+      r.registryInitiated,
+      r.patwariVerification,
+      r.submitted,
+      r.registrationIn,
+      r.completed,
+      pctRatio,
+      escapeCsvField(r.date),
+    ].join(',');
+  });
+  return [header, ...rows].join('\n');
+}
+
+/**
+ * Computes a deterministic fingerprint for a dataset of PatwariRecord[] to detect any cell change during live polling.
+ */
+export function computeDatasetFingerprint(records: PatwariRecord[]): string {
+  if (!records || records.length === 0) return 'empty:0';
+  let sumPlots = 0;
+  let sumBen = 0;
+  let sumInit = 0;
+  let sumVerif = 0;
+  let sumSub = 0;
+  let sumReg = 0;
+  let sumComp = 0;
+  let rollingHash = 5381;
+
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    sumPlots += r.plots;
+    sumBen += r.beneficiaries;
+    sumInit += r.registryInitiated;
+    sumVerif += r.patwariVerification;
+    sumSub += r.submitted;
+    sumReg += r.registrationIn;
+    sumComp += r.completed;
+
+    const rowKey = `${r.village}|${r.patwariName}|${r.plots}|${r.registryInitiated}|${r.patwariVerification}|${r.submitted}|${r.registrationIn}|${r.completed}|${r.date}`;
+    for (let j = 0; j < rowKey.length; j++) {
+      rollingHash = ((rollingHash << 5) + rollingHash) ^ rowKey.charCodeAt(j);
+    }
+  }
+
+  const dates = getAvailableDates(records).join(',');
+  return `${records.length}:${dates}:${sumPlots}:${sumBen}:${sumInit}:${sumVerif}:${sumSub}:${sumReg}:${sumComp}:${rollingHash >>> 0}`;
+}
+
+/**
+ * Builds candidate zero-cache CSV export URLs from a Google Sheets link (standard edit URL, pubhtml, pub CSV, or raw Sheet ID).
+ */
+export function buildGoogleSheetCandidateUrls(rawUrl: string, cacheBust?: number): string[] {
+  if (!rawUrl) return [];
+  const trimmed = rawUrl.trim();
+  const cbParam = cacheBust ? `&_cb=${cacheBust}` : '';
+
+  // 1. Published-to-web URL: /spreadsheets/d/e/2PACX-.../pubhtml or /pub
+  if (trimmed.includes('/spreadsheets/d/e/')) {
+    const gidMatch = trimmed.match(/[#&?]gid=([0-9]+)/);
+    const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+    const basePub = trimmed.split('?')[0].replace(/\/pubhtml$/i, '/pub').replace(/\/edit$/i, '/pub');
+    return [`${basePub}?output=csv${gidParam}${cbParam}`];
+  }
+
+  // 2. Standard Google Sheet URL: /spreadsheets/d/{ID}/edit#gid={GID}
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) {
+    const sheetId = match[1];
+    const gidMatch = trimmed.match(/[#&?]gid=([0-9]+)/);
+    const gid = gidMatch ? gidMatch[1] : '0';
+    return [
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}${cbParam}`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}${cbParam}`,
+    ];
+  }
+
+  // 3. Raw Google Spreadsheet ID (alphanumeric/hyphen/underscore, length >= 20, no slashes)
+  if (/^[a-zA-Z0-9-_]{20,60}$/.test(trimmed)) {
+    return [
+      `https://docs.google.com/spreadsheets/d/${trimmed}/export?format=csv&gid=0${cbParam}`,
+      `https://docs.google.com/spreadsheets/d/${trimmed}/gviz/tq?tqx=out:csv&gid=0${cbParam}`,
+    ];
+  }
+
+  // 4. Direct CSV URL
+  if (trimmed.includes('output=csv') || trimmed.endsWith('.csv')) {
+    const sep = trimmed.includes('?') ? '&' : '?';
+    return [cacheBust ? `${trimmed}${sep}_cb=${cacheBust}` : trimmed];
+  }
+
+  return [trimmed];
+}
+
+/**
+ * Smartly merges incoming Google Sheet records with historical dates:
+ * - If incoming sheet contains multiple dates (>= 2), uses incoming records as the complete dataset.
+ * - If incoming sheet contains a single date snapshot (e.g., 160 village rows for today), replaces that date's
+ *   records while preserving historical dates so daily deltas and multi-date trend charts remain intact.
+ */
+export function mergeSyncedRecordsWithHistory(
+  existingRecords: PatwariRecord[],
+  incomingRecords: PatwariRecord[]
+): PatwariRecord[] {
+  if (!incomingRecords || incomingRecords.length === 0) return existingRecords;
+  const incomingDates = getAvailableDates(incomingRecords);
+  let combined: PatwariRecord[];
+  if (incomingDates.length >= 2 || !existingRecords || existingRecords.length === 0) {
+    combined = incomingRecords;
+  } else {
+    const targetDate = incomingDates[0];
+    const historicalRecords = existingRecords.filter((r) => r.date !== targetDate);
+    combined = historicalRecords.length === 0 ? incomingRecords : [...historicalRecords, ...incomingRecords];
+  }
+  const deduped = new Map<string, PatwariRecord>();
+  for (const rec of combined) {
+    if (rec && rec.village && rec.date) {
+      deduped.set(`${(rec.lgdCode || rec.village).trim()}::${rec.date}`, rec);
+    }
+  }
+  return Array.from(deduped.values());
+}
+

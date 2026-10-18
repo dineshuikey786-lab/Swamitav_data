@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { INITIAL_CSV_RAW } from '../data/initialData';
+import { buildGoogleSheetCandidateUrls } from '../utils/patwariAnalytics';
 
 const DEFAULT_TAMIA_SHEET_URL =
   'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit?usp=sharing';
@@ -58,27 +59,44 @@ export const LiveSyncModal: React.FC<LiveSyncModalProps> = ({
     }
 
     setSyncing(true);
-    setStatusMessage({ type: 'info', text: 'Google Sheet से लाइव डेटा डाउनलोड हो रहा है...' });
+    setStatusMessage({ type: 'info', text: 'Google Sheet से लाइव डेटा (Zero-Cache) डाउनलोड हो रहा है...' });
 
     try {
-      const response = await fetch(`/api/sync-sheet?url=${encodeURIComponent(targetUrl)}`);
-      const data = await response.json();
+      let csvText = '';
+      const response = await fetch(`/api/sync-sheet?url=${encodeURIComponent(targetUrl)}&_cb=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
 
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'गूगल शीट से डेटा प्राप्त करने में विफल');
+      if (response.ok && data.csv) {
+        csvText = data.csv;
+      } else {
+        // Fallback: try direct client-side fetch from Google Sheets gviz/export endpoints
+        const candidates = buildGoogleSheetCandidateUrls(targetUrl, Date.now());
+        for (const candidate of candidates) {
+          try {
+            const directRes = await fetch(candidate, { cache: 'no-store' });
+            if (directRes.ok) {
+              const text = await directRes.text();
+              if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
+                csvText = text;
+                break;
+              }
+            }
+          } catch {}
+        }
+        if (!csvText) {
+          throw new Error(data.error || 'गूगल शीट से डेटा प्राप्त करने में विफल');
+        }
       }
 
-      if (!data.csv) {
-        throw new Error('शीट से कोई डेटा प्राप्त नहीं हुआ।');
-      }
-
-      const success = onSyncCsvData(data.csv, 'Google Sheet से');
+      const success = onSyncCsvData(csvText, 'Google Sheet से');
       if (success) {
         onUpdateSheetUrl(targetUrl);
         setInputUrl(targetUrl);
         setStatusMessage({
           type: 'success',
-          text: `डेटा सफलतापूर्वक लाइव सिंक हुआ! डैशबोर्ड के सभी सेक्शन्स (KPIs, Workflow, Matrix, Village Register, AI Analysis) नवीनतम स्थिति पर अपडेट हो गए हैं।`,
+          text: `डेटा सफलतापूर्वक लाइव सिंक हुआ! जब भी Google Sheet में कोई बदलाव होगा, डैशबोर्ड के सभी सेक्शन्स स्वतः अपडेट हो जाएंगे।`,
         });
       } else {
         throw new Error('CSV फॉर्मेट मान्य नहीं है। कृपया कॉलम की जांच करें।');
@@ -278,7 +296,7 @@ export const LiveSyncModal: React.FC<LiveSyncModalProps> = ({
                 placeholder="https://docs.google.com/spreadsheets/d/.../edit या प्रकाशित CSV लिंक..."
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
-                className={`flex-1 border rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                className={`flex-1 border rounded-xl px-3 py-2 text-xs font-sans focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                   isDark
                     ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600'
                     : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
@@ -316,45 +334,81 @@ export const LiveSyncModal: React.FC<LiveSyncModalProps> = ({
 
           {/* Auto-Refresh Timer Setting */}
           <div
-            className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+            className={`p-3.5 rounded-xl border space-y-3 text-xs ${
               isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}
           >
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-emerald-500" />
-              <div>
-                <span className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  ऑटो-रीफ्रेश अंतराल (Live Auto-Sync):
-                </span>
-                <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  पृष्ठभूमि में Google Sheet से डेटा स्वतः सिंक करें
-                </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-emerald-500" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      ऑटोमैटिक लाइव सिंक (Automatic Change Detection):
+                    </span>
+                    {autoSyncInterval > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        ● सक्रिय ({autoSyncInterval}s)
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Google Sheet में कोई भी सेल या पंक्ति बदलने पर डेटा फिंगरप्रिंट जाँच कर डैशबोर्ड स्वतः अपडेट हो जाएगा
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { label: '5 सेकंड (Fast)', sec: 5 },
+                  { label: '10 सेकंड', sec: 10 },
+                  { label: '15 सेकंड (Live)', sec: 15 },
+                  { label: '30 सेकंड', sec: 30 },
+                  { label: '1 मिनट', sec: 60 },
+                  { label: 'बंद (Off)', sec: 0 },
+                ].map((opt) => (
+                  <button
+                    key={opt.sec}
+                    type="button"
+                    onClick={() => onUpdateAutoSyncInterval(opt.sec)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                      autoSyncInterval === opt.sec
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : isDark
+                        ? 'bg-slate-800 text-slate-400 hover:text-white'
+                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              {[
-                { label: 'बंद (Off)', sec: 0 },
-                { label: '30 सेकंड', sec: 30 },
-                { label: '1 मिनट', sec: 60 },
-                { label: '5 मिनट', sec: 300 },
-              ].map((opt) => (
-                <button
-                  key={opt.sec}
-                  type="button"
-                  onClick={() => onUpdateAutoSyncInterval(opt.sec)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
-                    autoSyncInterval === opt.sec
-                      ? 'bg-emerald-600 text-white'
-                      : isDark
-                      ? 'bg-slate-800 text-slate-400 hover:text-white'
-                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            {/* Instant onEdit Webhook info */}
+            <details className={`rounded-lg border p-2.5 ${isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <summary className="cursor-pointer font-semibold text-[11px] text-emerald-500 flex items-center justify-between">
+                <span>⚡ उन्नत विकल्प: Google Sheet में बदलाव होते ही 0-सेकंड में इंस्टेंट पुश (Apps Script Webhook)</span>
+                <span className="text-[10px] underline">कोड देखें</span>
+              </summary>
+              <div className="mt-2 space-y-1.5 text-[11px]">
+                <p className={isDark ? 'text-slate-400' : 'text-slate-600'}>
+                  यदि आप चाहते हैं कि Google Sheet में कोई भी संख्या लिखते ही तुरंत उसी सेकंड यह सर्वर अपडेट हो जाए, तो अपनी Google Sheet में <strong>Extensions &gt; Apps Script</strong> खोलें और यह छोटा कोड पेस्ट करके Save करें:
+                </p>
+                <pre className="p-2 rounded bg-black text-emerald-400 font-mono text-[10px] overflow-x-auto select-all">
+{`function onEdit(e) {
+  var sheet = e.source.getActiveSheet();
+  var data = sheet.getDataRange().getValues();
+  var csv = data.map(function(r){ return r.join(","); }).join("\\n");
+  UrlFetchApp.fetch("${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhook/sheet-update", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ csv: csv })
+  });
+}`}
+                </pre>
+              </div>
+            </details>
           </div>
 
           {/* Option 2: Upload CSV or Paste directly */}

@@ -1,6 +1,8 @@
 import React from 'react';
 import {
   Calendar,
+  ChevronLeft,
+  ChevronRight,
   RefreshCw,
   Sparkles,
   FileSpreadsheet,
@@ -21,6 +23,7 @@ interface HeaderProps {
   selectedDate: string;
   onSelectDate: (date: string) => void;
   isAutoSyncing: boolean;
+  autoSyncInterval?: number;
   isUpdatingSheet?: boolean;
   lastUpdated: Date;
   onOpenSyncModal: () => void;
@@ -40,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedDate,
   onSelectDate,
   isAutoSyncing,
+  autoSyncInterval = 15,
   isUpdatingSheet = false,
   lastUpdated,
   onOpenSyncModal,
@@ -54,6 +58,12 @@ export const Header: React.FC<HeaderProps> = ({
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
 
+  const latestDate = availableDates.length > 0 ? availableDates[availableDates.length - 1] : selectedDate;
+  const firstDate = availableDates.length > 0 ? availableDates[0] : selectedDate;
+  const currentDateIdx = availableDates.indexOf(selectedDate);
+  const canGoPrev = currentDateIdx > 0;
+  const canGoNext = currentDateIdx >= 0 && currentDateIdx < availableDates.length - 1;
+
   return (
     <header
       className={`border-b sticky top-0 z-30 transition-colors duration-200 ${
@@ -64,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
     >
       {/* Top Banner with Indian Revenue Seal Style */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 px-4 py-2 text-xs border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-slate-300">
+        <div className="flex flex-wrap items-center gap-2 text-slate-300">
           <span className="flex h-2 w-2 relative">
             <span
               className={`animate-ping absolute inline-flex h-full w-full rounded-full ${
@@ -82,17 +92,36 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
           <span className="text-slate-600">|</span>
           <span className="text-slate-300 font-hindi">स्वामित्व / आबादी भूमि सर्वे एवं पंजीयन निगरानी</span>
+          <span className="hidden md:inline text-slate-600">|</span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-900/70 border border-emerald-700/80 text-[11px] text-emerald-200">
+            <Calendar className="h-3 w-3 text-emerald-400" />
+            <span>सक्रिय दिनांक:</span>
+            <strong className="font-mono text-white">{selectedDate}</strong>
+            <span className="text-emerald-400/90 text-[10px]">
+              ({firstDate} से {latestDate} • कुल {availableDates.length} तिथियाँ)
+            </span>
+          </span>
         </div>
 
         <div className="flex items-center gap-3 text-slate-400">
           <span className="text-[11px]">
-            अंतिम अपडेट: <span className="text-slate-200 font-mono">{lastUpdated.toLocaleTimeString()}</span>
-          </span>
-          {isAutoSyncing && (
-            <span className="bg-emerald-900/80 text-emerald-300 text-[10px] px-2 py-0.5 rounded border border-emerald-700 font-medium">
-              Live Sync On
+            अंतिम अपडेट:{' '}
+            <span className="text-slate-200 font-mono">
+              {selectedDate} • {lastUpdated.toLocaleTimeString()}
             </span>
-          )}
+          </span>
+          <button
+            type="button"
+            onClick={onOpenSyncModal}
+            className={`text-[10px] px-2 py-0.5 rounded border font-medium transition cursor-pointer ${
+              isAutoSyncing
+                ? 'bg-emerald-900/80 text-emerald-300 border-emerald-700 hover:bg-emerald-800'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+            }`}
+            title="Google Sheet ऑटो-सिंक अंतराल बदलें"
+          >
+            {isAutoSyncing ? `● Auto-Sync ON (${autoSyncInterval}s)` : 'Auto-Sync Off'}
+          </button>
         </div>
       </div>
 
@@ -174,38 +203,82 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
-            {/* Date Dropdown */}
+            {/* Enhanced Date Selector with Prev/Next & Latest Date Indicator */}
             <div
-              className={`flex items-center rounded-xl border px-2 py-1 text-xs ${
+              className={`flex items-center rounded-xl border px-2 py-1 text-xs shadow-sm ${
                 isDark
-                  ? 'bg-slate-800/90 border-slate-700/80'
-                  : 'bg-slate-100 border-slate-300 text-slate-800'
+                  ? 'bg-slate-800/95 border-emerald-700/70 text-white'
+                  : 'bg-emerald-50/90 border-emerald-300 text-slate-900'
               }`}
             >
-              <Calendar
-                className={`h-3.5 w-3.5 mr-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}
-              />
-              <label htmlFor="date-select" className="sr-only">
-                दिनांक चुनें
-              </label>
-              <select
-                id="date-select"
-                value={selectedDate}
-                onChange={(e) => onSelectDate(e.target.value)}
-                className={`bg-transparent font-sans text-xs focus:outline-none cursor-pointer pr-2 font-medium ${
-                  isDark ? 'text-white' : 'text-slate-900'
+              <button
+                type="button"
+                disabled={!canGoPrev}
+                onClick={() => canGoPrev && onSelectDate(availableDates[currentDateIdx - 1])}
+                title="पिछली तिथि देखें (Previous Date)"
+                className={`p-1 rounded-lg transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isDark ? 'hover:bg-slate-700 text-slate-300' : 'hover:bg-emerald-200/70 text-slate-700'
                 }`}
               >
-                {availableDates.map((d) => (
-                  <option
-                    key={d}
-                    value={d}
-                    className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}
-                  >
-                    {d}
-                  </option>
-                ))}
-              </select>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+
+              <div className="flex items-center px-1.5">
+                <Calendar
+                  className={`h-3.5 w-3.5 mr-1.5 flex-shrink-0 ${
+                    isDark ? 'text-emerald-400' : 'text-emerald-600'
+                  }`}
+                />
+                <label
+                  htmlFor="date-select"
+                  className={`mr-1 font-semibold hidden sm:inline ${
+                    isDark ? 'text-emerald-300' : 'text-emerald-800'
+                  }`}
+                >
+                  दिनांक:
+                </label>
+                <select
+                  id="date-select"
+                  value={selectedDate}
+                  onChange={(e) => onSelectDate(e.target.value)}
+                  className={`bg-transparent font-sans text-xs focus:outline-none cursor-pointer pr-1 font-bold ${
+                    isDark ? 'text-white' : 'text-slate-900'
+                  }`}
+                >
+                  {availableDates.map((d, idx) => (
+                    <option
+                      key={d}
+                      value={d}
+                      className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}
+                    >
+                      {d} {idx === availableDates.length - 1 ? '(नवीनतम / Latest)' : `(दिन ${idx + 1})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                disabled={!canGoNext}
+                onClick={() => canGoNext && onSelectDate(availableDates[currentDateIdx + 1])}
+                title="अगली तिथि देखें (Next Date)"
+                className={`p-1 rounded-lg transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isDark ? 'hover:bg-slate-700 text-slate-300' : 'hover:bg-emerald-200/70 text-slate-700'
+                }`}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+
+              {selectedDate !== latestDate && (
+                <button
+                  type="button"
+                  onClick={() => onSelectDate(latestDate)}
+                  title={`नवीनतम तिथि (${latestDate}) पर जाएं`}
+                  className="ml-1 px-1.5 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition cursor-pointer"
+                >
+                  नवीनतम
+                </button>
+              )}
             </div>
 
             {/* Dark / Light Theme Switcher Button */}
@@ -321,7 +394,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenShareModal}
-              title="Netlify (.netlify.app), GitHub एवं पब्लिक लिंक डिप्लॉयमेंट"
+              title="वर्तमान डेटा GitHub पर पुश करें एवं Netlify (.netlify.app) पर डिप्लॉय करें"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
                 isDark
                   ? 'bg-teal-950/50 hover:bg-teal-900/70 text-teal-300 border-teal-700/80 shadow-sm'
@@ -329,8 +402,8 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Share2 className="h-3.5 w-3.5 text-teal-500" />
-              <span className="hidden sm:inline">डिप्लॉय / Netlify</span>
-              <span className="sm:hidden">Netlify</span>
+              <span className="hidden sm:inline">GitHub पुश / डिप्लॉय</span>
+              <span className="sm:hidden">GitHub</span>
             </button>
           </div>
         </div>

@@ -151,8 +151,12 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
                   : 'bg-slate-100 text-slate-600'
               }`}
             >
-              <ArrowUpRight className="h-3 w-3 mr-0.5" />
-              +{comparison.deltaVerified}
+              {comparison.deltaVerified > 0 ? (
+                <ArrowUpRight className="h-3 w-3 mr-0.5" />
+              ) : (
+                <ArrowDownRight className="h-3 w-3 mr-0.5" />
+              )}
+              {comparison.deltaVerified > 0 ? `+${comparison.deltaVerified}` : comparison.deltaVerified}
             </span>
           )}
         </div>

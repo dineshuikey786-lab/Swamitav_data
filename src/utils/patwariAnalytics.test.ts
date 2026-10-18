@@ -12,6 +12,10 @@ import {
   calculatePatwariDateMatrix,
   calculateDateTrends,
   calculateStatusSlices,
+  serializeRecordsToCsv,
+  computeDatasetFingerprint,
+  buildGoogleSheetCandidateUrls,
+  mergeSyncedRecordsWithHistory,
 } from './patwariAnalytics.ts';
 
 const SAMPLE_CSV = `S.No,Village ▲,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date
@@ -174,4 +178,70 @@ test('calculateDateTrends and calculateStatusSlices compute valid data', () => {
   assert.ok(slices[0].count >= 0);
 });
 
+test('serializeRecordsToCsv round-trips records accurately', () => {
+  const original = parseCSVDataset(SAMPLE_CSV);
+  const csv = serializeRecordsToCsv(original);
+  const reparsed = parseCSVDataset(csv);
+
+  assert.equal(reparsed.length, original.length);
+  assert.equal(reparsed[0].village, original[0].village);
+  assert.equal(reparsed[0].registryInitiated, original[0].registryInitiated);
+  assert.equal(reparsed[1].completed, original[1].completed);
+});
+
+test('computeDatasetFingerprint detects any cell modification in Google Sheet', () => {
+  const records1 = parseCSVDataset(SAMPLE_CSV);
+  const records2 = parseCSVDataset(SAMPLE_CSV);
+  assert.equal(computeDatasetFingerprint(records1), computeDatasetFingerprint(records2));
+
+  // Modify a single cell (completed from 5 to 6)
+  records2[1] = { ...records2[1], completed: 6 };
+  assert.notEqual(computeDatasetFingerprint(records1), computeDatasetFingerprint(records2));
+});
+
+test('buildGoogleSheetCandidateUrls prioritizes /export?format=csv before gviz/tq and supports pubhtml/raw ID', () => {
+  const raw = 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit#gid=12345';
+  const urls = buildGoogleSheetCandidateUrls(raw, 999);
+  assert.equal(urls.length, 2);
+  assert.equal(
+    urls[0],
+    'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/export?format=csv&gid=12345&_cb=999'
+  );
+  assert.equal(
+    urls[1],
+    'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/gviz/tq?tqx=out:csv&gid=12345&_cb=999'
+  );
+
+  const pubUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTestSheetId/pubhtml?gid=0&single=true';
+  const pubCandidates = buildGoogleSheetCandidateUrls(pubUrl, 555);
+  assert.equal(pubCandidates[0], 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTestSheetId/pub?output=csv&gid=0&_cb=555');
+});
+
+test('mergeSyncedRecordsWithHistory preserves historical dates when single-date sheet is linked', () => {
+  const existing = parseCSVDataset(SAMPLE_CSV); // has 11-10-2026 (2 rows) and 12-10-2026 (3 rows)
+  const singleDateSheet = `S.No,Village,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date
+1,अन्होनी,493692,Ruchin Arjariya,89,169,25,18,5,2,10,11.2,12-10-2026
+`;
+  const incoming = parseCSVDataset(singleDateSheet);
+  const merged = mergeSyncedRecordsWithHistory(existing, incoming);
+  const dates = getAvailableDates(merged);
+  assert.deepEqual(dates, ['11-10-2026', '12-10-2026']);
+  const oct12 = merged.filter((r) => r.date === '12-10-2026');
+  assert.equal(oct12.length, 1);
+  assert.equal(oct12[0].completed, 10);
+});
+
+test('parseCSVDataset infers sequential daily dates when gviz/tq strips dates with day > 12', () => {
+  const gvizCsv = `S.No,Village,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date
+1,अन्होनी,493692,Ruchin Arjariya,89,169,10,4,0,0,0,0,12/10/2026
+2,आमढाना,493802,Lokendra Narganwa,18,31,0,0,0,0,0,0,12/10/2026
+3,अन्होनी,493692,Ruchin Arjariya,89,169,12,6,0,0,2,0.0225,
+4,आमढाना,493802,Lokendra Narganwa,18,31,1,1,0,0,0,0,
+5,अन्होनी,493692,Ruchin Arjariya,89,169,15,9,0,0,5,0.0562,
+6,आमढाना,493802,Lokendra Narganwa,18,31,2,2,0,0,1,0.0556,
+`;
+  const parsed = parseCSVDataset(gvizCsv);
+  assert.equal(parsed.length, 6);
+  assert.deepEqual(getAvailableDates(parsed), ['12-10-2026', '13-10-2026', '14-10-2026']);
+});
 

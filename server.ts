@@ -2,7 +2,18 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import path from 'path';
+import fs from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { INITIAL_CSV_RAW } from './src/data/initialData.ts';
+import {
+  parseCSVDataset,
+  getAvailableDates,
+  computeDatasetFingerprint,
+  buildGoogleSheetCandidateUrls,
+  mergeSyncedRecordsWithHistory,
+  serializeRecordsToCsv,
+} from './src/utils/patwariAnalytics.ts';
 
 dotenv.config();
 
@@ -12,37 +23,97 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 
-// Initialize Gemini Client with proper server header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+// Lazy-initialize Gemini Client so server startup never fails if GEMINI_API_KEY is unset
+function getGenAIClient() {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY || 'missing-api-key',
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
-  },
-});
-
-import { INITIAL_CSV_RAW } from './src/data/initialData.ts';
+  });
+}
 
 // Server-level in-memory store for active live Google Sheet sync
+const initialParsed = parseCSVDataset(INITIAL_CSV_RAW);
+const initialDates = getAvailableDates(initialParsed);
 let activeSyncedCsv = INITIAL_CSV_RAW;
-let activeSheetUrl = 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit (Tamia Circle Official Live Sync)';
+let activeSheetUrl =
+  'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit?usp=sharing';
 let activeSyncedAt = new Date().toISOString();
-let activeLatestDate = '13-10-2026';
-let activeRecordCount = 480;
+let activeLatestDate = initialDates.length > 0 ? initialDates[initialDates.length - 1] : '13-10-2026';
+let activeRecordCount = initialParsed.length || 480;
+let activeFingerprint = computeDatasetFingerprint(initialParsed);
 
 /**
- * Proxy endpoint to sync live Google Sheets or external CSVs without browser CORS errors.
- * If url is empty or 'default' or 'latest', serves the latest official Google Sheet dataset.
+ * Writes the given CSV string into src/data/initialData.ts so the codebase and Git repo stay in sync.
+ */
+function persistCsvToInitialDataFile(csvContent: string): boolean {
+  try {
+    const targetPath = path.join(__dirname, 'src', 'data', 'initialData.ts');
+    const safeCsv = csvContent.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+    const fileContent = `// Initial raw dataset provided from Patwari revenue monitoring (Tamia / Chhindwara circle)\nexport const INITIAL_CSV_RAW = \`${safeCsv.trim()}\`;\n`;
+    fs.writeFileSync(targetPath, fileContent, 'utf8');
+    return true;
+  } catch (err) {
+    console.warn('Could not persist CSV to initialData.ts:', err);
+    return false;
+  }
+}
+
+/**
+ * Ensures the workspace has an initialized Git repository with a clean commit on branch main.
+ */
+function ensureGitRepoInitialized(commitMsg = 'Sync latest Patwari dashboard data and configuration') {
+  try {
+    const gitDir = path.join(__dirname, '.git');
+    if (!fs.existsSync(gitDir)) {
+      execSync('git init -b main', { cwd: __dirname, stdio: 'pipe' });
+      execSync('git config user.name "Dinesh Uikey"', { cwd: __dirname, stdio: 'pipe' });
+      execSync('git config user.email "dineshuikey786@gmail.com"', { cwd: __dirname, stdio: 'pipe' });
+    }
+    execSync('git add -A', { cwd: __dirname, stdio: 'pipe' });
+    const statusOut = execSync('git status --porcelain', { cwd: __dirname, encoding: 'utf8' }).trim();
+    if (statusOut.length > 0) {
+      const safeMsg = commitMsg.replace(/"/g, "'");
+      execSync(`git commit -m "${safeMsg}"`, { cwd: __dirname, stdio: 'pipe' });
+    }
+  } catch (err: any) {
+    // Check if repo has zero commits yet
+    try {
+      execSync('git rev-parse --verify HEAD', { cwd: __dirname, stdio: 'pipe' });
+    } catch {
+      try {
+        execSync('git commit --allow-empty -m "Initial commit"', { cwd: __dirname, stdio: 'pipe' });
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Proxy endpoint to sync live Google Sheets or external CSVs without browser CORS or caching delays.
  */
 app.get('/api/sync-sheet', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
   try {
-    const rawUrl = (req.query.url as string)?.trim();
-    
-    // If no URL or 'default' or 'latest', return the verified latest Tamia Circle Google Sheet dataset
-    if (!rawUrl || rawUrl === 'default' || rawUrl === 'latest') {
+    const rawQueryUrl = (req.query.url as string)?.trim();
+    const isPlaceholderSheet = (u?: string) =>
+      !u || u === 'default' || u.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms');
+
+    // Determine effective URL: if 'latest' or empty, use activeSheetUrl if a real Google Sheet was linked
+    const effectiveUrl =
+      !rawQueryUrl || rawQueryUrl === 'latest'
+        ? !isPlaceholderSheet(activeSheetUrl)
+          ? activeSheetUrl
+          : 'default'
+        : rawQueryUrl;
+
+    if (isPlaceholderSheet(effectiveUrl)) {
       return res.json({
         csv: activeSyncedCsv,
         sourceUrl: activeSheetUrl,
@@ -50,43 +121,104 @@ app.get('/api/sync-sheet', async (req, res) => {
         isOfficial: true,
         recordCount: activeRecordCount,
         latestDate: activeLatestDate,
+        fingerprint: activeFingerprint,
       });
     }
 
-    let fetchUrl = rawUrl;
-    // Convert regular Google Sheets link to CSV export if necessary
-    const sheetMatch = fetchUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    if (sheetMatch && sheetMatch[1] && !fetchUrl.includes('output=csv')) {
-      const sheetId = sheetMatch[1];
-      const gidMatch = fetchUrl.match(/[#&?]gid=([0-9]+)/);
-      const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '&gid=0';
-      fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv${gidParam}`;
+    const candidates = buildGoogleSheetCandidateUrls(effectiveUrl, Date.now());
+    let csvText = '';
+    let resolvedUrl = effectiveUrl;
+    let lastStatus = 500;
+    let lastErrorText = '';
+
+    for (const candidateUrl of candidates) {
+      try {
+        const response = await fetch(candidateUrl, {
+          headers: {
+            'Accept': 'text/csv, text/plain, */*',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) PatwariDashboard/2.0',
+          },
+        });
+
+        if (response.ok) {
+          const text = await response.text();
+          // Ensure Google didn't return an HTML login page instead of CSV
+          if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
+            csvText = text;
+            resolvedUrl = candidateUrl;
+            break;
+          } else {
+            lastErrorText =
+              'गूगल शीट निजी (Private) है। कृपया Google Sheet में Share -> "Anyone with the link" (Viewer) चालू करें।';
+          }
+        } else {
+          lastStatus = response.status;
+          lastErrorText = `Failed to fetch spreadsheet (${response.status} ${response.statusText}). Ensure sheet is shared to 'Anyone with the link'.`;
+        }
+      } catch (fetchErr: any) {
+        lastErrorText = fetchErr?.message || 'Network error fetching Google Sheet';
+      }
     }
 
-    const response = await fetch(fetchUrl, {
-      headers: {
-        'Accept': 'text/csv, text/plain, */*',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) PatwariDashboard/1.0',
-      },
-    });
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: `Failed to fetch spreadsheet (${response.status} ${response.statusText}). Ensure sheet is shared to 'Anyone with the link' or published to web.`,
+    if (!csvText) {
+      // If this was a background 'latest' check, fall back gracefully to activeSyncedCsv
+      if (!rawQueryUrl || rawQueryUrl === 'latest') {
+        return res.json({
+          csv: activeSyncedCsv,
+          sourceUrl: activeSheetUrl,
+          syncedAt: activeSyncedAt,
+          recordCount: activeRecordCount,
+          latestDate: activeLatestDate,
+          fingerprint: activeFingerprint,
+        });
+      }
+      return res.status(lastStatus >= 400 ? lastStatus : 502).json({
+        error:
+          lastErrorText ||
+          'Google Sheet से डेटा प्राप्त नहीं हो सका। कृपया सुनिश्चित करें कि शीट "Anyone with the link" पर साझा है।',
       });
     }
 
-    const csvText = await response.text();
-    // Persist as active dataset so all visitors see live updates immediately
-    activeSyncedCsv = csvText;
-    activeSheetUrl = fetchUrl;
-    activeSyncedAt = new Date().toISOString();
+    const parsedIncoming = parseCSVDataset(csvText);
+    if (parsedIncoming.length === 0) {
+      return res.status(422).json({
+        error:
+          'Google Sheet में मान्य पटवारी/ग्राम कॉलम नहीं मिले। कृपया सुनिश्चित करें कि शीट में Village, Patwari Name, Plots आदि कॉलम मौजूद हैं।',
+      });
+    }
+
+    // Smartly merge with historical dates if the linked Google Sheet is a single-date live sheet
+    const currentParsed = parseCSVDataset(activeSyncedCsv);
+    const mergedRecords = mergeSyncedRecordsWithHistory(currentParsed, parsedIncoming);
+    const mergedCsv = serializeRecordsToCsv(mergedRecords);
+
+    const newFingerprint = computeDatasetFingerprint(mergedRecords);
+    const dates = getAvailableDates(mergedRecords);
+    const newestDate = dates.length > 0 ? dates[dates.length - 1] : activeLatestDate;
+    const hasChanged = newFingerprint !== activeFingerprint;
+
+    activeSyncedCsv = mergedCsv;
+    activeSheetUrl = effectiveUrl;
+    activeLatestDate = newestDate;
+    activeRecordCount = mergedRecords.length;
+
+    if (hasChanged) {
+      activeSyncedAt = new Date().toISOString();
+      activeFingerprint = newFingerprint;
+      persistCsvToInitialDataFile(mergedCsv);
+    }
 
     return res.json({
-      csv: csvText,
-      sourceUrl: fetchUrl,
+      csv: mergedCsv,
+      sourceUrl: activeSheetUrl,
+      resolvedExportUrl: resolvedUrl,
       syncedAt: activeSyncedAt,
       latestDate: activeLatestDate,
+      recordCount: activeRecordCount,
+      fingerprint: activeFingerprint,
+      hasChanged,
     });
   } catch (error: any) {
     console.error('Error fetching Google Sheet:', error);
@@ -95,35 +227,226 @@ app.get('/api/sync-sheet', async (req, res) => {
 });
 
 /**
- * Endpoint to save synced dataset from client to server so all shared links reflect it
+ * Endpoint to save synced dataset from client to server and persist to src/data/initialData.ts
  */
-app.post('/api/save-sync', express.json(), (req, res) => {
+app.post('/api/save-sync', (req, res) => {
   try {
-    const { csv, sourceUrl, latestDate, recordCount } = req.body || {};
+    const { csv, sourceUrl, latestDate, recordCount, persistToCodebase = true } = req.body || {};
     if (csv && typeof csv === 'string') {
-      activeSyncedCsv = csv;
-      if (sourceUrl) activeSheetUrl = sourceUrl;
-      if (latestDate) activeLatestDate = latestDate;
-      if (recordCount) activeRecordCount = recordCount;
-      activeSyncedAt = new Date().toISOString();
+      const parsed = parseCSVDataset(csv);
+      if (parsed.length > 0) {
+        activeSyncedCsv = csv;
+        if (sourceUrl) activeSheetUrl = sourceUrl;
+        const dates = getAvailableDates(parsed);
+        activeLatestDate = latestDate || (dates.length > 0 ? dates[dates.length - 1] : activeLatestDate);
+        activeRecordCount = recordCount || parsed.length;
+        activeSyncedAt = new Date().toISOString();
+        activeFingerprint = computeDatasetFingerprint(parsed);
+
+        if (persistToCodebase) {
+          persistCsvToInitialDataFile(csv);
+        }
+      }
     }
-    return res.json({ success: true, syncedAt: activeSyncedAt, latestDate: activeLatestDate });
+    return res.json({
+      success: true,
+      syncedAt: activeSyncedAt,
+      latestDate: activeLatestDate,
+      recordCount: activeRecordCount,
+      fingerprint: activeFingerprint,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to save sync' });
   }
 });
 
 /**
- * Dedicated endpoint returning latest verified revenue dataset
+ * Webhook endpoint for instant push from Google Apps Script onEdit(e) trigger
+ */
+app.post('/api/webhook/sheet-update', async (req, res) => {
+  try {
+    const { csv, sheetUrl: webhookSheetUrl } = req.body || {};
+    if (csv && typeof csv === 'string') {
+      const parsed = parseCSVDataset(csv);
+      if (parsed.length > 0) {
+        const dates = getAvailableDates(parsed);
+        activeSyncedCsv = csv;
+        activeLatestDate = dates.length > 0 ? dates[dates.length - 1] : activeLatestDate;
+        activeRecordCount = parsed.length;
+        activeSyncedAt = new Date().toISOString();
+        activeFingerprint = computeDatasetFingerprint(parsed);
+        persistCsvToInitialDataFile(csv);
+        return res.json({
+          success: true,
+          recordCount: activeRecordCount,
+          latestDate: activeLatestDate,
+          fingerprint: activeFingerprint,
+        });
+      }
+    }
+    return res.json({
+      success: true,
+      message: 'Webhook received',
+      syncedAt: activeSyncedAt,
+      fingerprint: activeFingerprint,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Webhook error' });
+  }
+});
+
+/**
+ * Dedicated endpoint returning latest verified revenue dataset + fingerprint for fast polling
  */
 app.get('/api/latest-sheet-data', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   return res.json({
     csv: activeSyncedCsv,
     sourceUrl: activeSheetUrl,
     syncedAt: activeSyncedAt,
     recordCount: activeRecordCount,
     latestDate: activeLatestDate,
+    fingerprint: activeFingerprint,
   });
+});
+
+/**
+ * Git & GitHub Repository Status Endpoint
+ */
+app.get('/api/github/status', (_req, res) => {
+  try {
+    ensureGitRepoInitialized();
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: __dirname, encoding: 'utf8' }).trim();
+    const commitHash = execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf8' }).trim();
+    const commitMessage = execSync('git log -1 --pretty=%B', { cwd: __dirname, encoding: 'utf8' }).trim();
+    const commitTime = execSync('git log -1 --format=%cd --date=iso', { cwd: __dirname, encoding: 'utf8' }).trim();
+    let remoteUrl = '';
+    try {
+      remoteUrl = execSync('git remote get-url origin', { cwd: __dirname, encoding: 'utf8' }).trim();
+      // Strip any embedded credentials if present
+      remoteUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+    } catch {}
+
+    return res.json({
+      gitInitialized: true,
+      branch,
+      commitHash,
+      commitMessage,
+      commitTime,
+      remoteUrl,
+      recordCount: activeRecordCount,
+      latestDate: activeLatestDate,
+      fingerprint: activeFingerprint,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to read Git status' });
+  }
+});
+
+/**
+ * Git Commit & Direct GitHub Push Endpoint
+ * Persists current dashboard CSV data into src/data/initialData.ts, commits to Git,
+ * and optionally pushes directly to GitHub if repoUrl + githubToken are provided.
+ */
+app.post('/api/github/push', (req, res) => {
+  try {
+    const {
+      repoUrl,
+      githubToken,
+      commitMessage = `Update Patwari Dashboard data (${activeRecordCount} records, latest: ${activeLatestDate})`,
+      branch = 'main',
+      csv,
+    } = req.body || {};
+
+    if (csv && typeof csv === 'string') {
+      const parsed = parseCSVDataset(csv);
+      if (parsed.length > 0) {
+        const dates = getAvailableDates(parsed);
+        activeSyncedCsv = csv;
+        activeLatestDate = dates.length > 0 ? dates[dates.length - 1] : activeLatestDate;
+        activeRecordCount = parsed.length;
+        activeSyncedAt = new Date().toISOString();
+        activeFingerprint = computeDatasetFingerprint(parsed);
+        persistCsvToInitialDataFile(csv);
+      }
+    } else {
+      persistCsvToInitialDataFile(activeSyncedCsv);
+    }
+
+    ensureGitRepoInitialized(commitMessage);
+
+    const commitHash = execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf8' }).trim();
+
+    // Normalize repoUrl if provided
+    let cleanRepoPath = '';
+    if (repoUrl && typeof repoUrl === 'string' && repoUrl.trim()) {
+      const trimmedRepo = repoUrl.trim().replace(/\.git$/, '').replace(/\/$/, '');
+      const ghMatch = trimmedRepo.match(/github\.com[/:]([^/]+\/[^/]+)/);
+      if (ghMatch && ghMatch[1]) {
+        cleanRepoPath = ghMatch[1];
+      } else if (/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(trimmedRepo)) {
+        cleanRepoPath = trimmedRepo;
+      }
+    }
+
+    if (cleanRepoPath) {
+      const publicRemote = `https://github.com/${cleanRepoPath}.git`;
+      try {
+        execSync(`git remote set-url origin "${publicRemote}"`, { cwd: __dirname, stdio: 'pipe' });
+      } catch {
+        try {
+          execSync(`git remote add origin "${publicRemote}"`, { cwd: __dirname, stdio: 'pipe' });
+        } catch {}
+      }
+    }
+
+    if (cleanRepoPath && githubToken && typeof githubToken === 'string' && githubToken.trim()) {
+      const token = githubToken.trim();
+      const authRemote = `https://x-access-token:${encodeURIComponent(token)}@github.com/${cleanRepoPath}.git`;
+      const targetBranch = (branch || 'main').replace(/[^a-zA-Z0-9_.-]/g, '');
+
+      try {
+        execSync(`git push --force "${authRemote}" HEAD:refs/heads/${targetBranch}`, {
+          cwd: __dirname,
+          stdio: 'pipe',
+          timeout: 30000,
+        });
+
+        return res.json({
+          success: true,
+          pushedToRemote: true,
+          repoWebUrl: `https://github.com/${cleanRepoPath}`,
+          branch: targetBranch,
+          commitHash,
+          commitMessage,
+          recordCount: activeRecordCount,
+          latestDate: activeLatestDate,
+          message: `सफलतापूर्वक GitHub रिपॉजिटरी (${cleanRepoPath}) की '${targetBranch}' ब्रांच पर पुश हो गया!`,
+        });
+      } catch (pushErr: any) {
+        const stderr = pushErr?.stderr?.toString() || pushErr?.message || 'Git push failed';
+        const sanitizedErr = stderr.replace(/x-access-token:[^@]+@/g, 'x-access-token:***@');
+        return res.status(400).json({
+          error: `GitHub Push विफल रहा: ${sanitizedErr}. कृपया सुनिश्चित करें कि रिपॉजिटरी मौजूद है और Personal Access Token में 'repo' या 'Contents: Read & write' अनुमति है।`,
+          commitHash,
+          localCommitted: true,
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      pushedToRemote: false,
+      localCommitted: true,
+      commitHash,
+      commitMessage,
+      recordCount: activeRecordCount,
+      latestDate: activeLatestDate,
+      message: `वर्तमान डैशबोर्ड डेटा (${activeRecordCount} रिकॉर्ड्स, दिनांक ${activeLatestDate}) सफलतापूर्वक src/data/initialData.ts एवं स्थानीय Git (Commit #${commitHash}) में सुरक्षित हो गया है!`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to commit/push data' });
+  }
 });
 
 /**
@@ -165,6 +488,7 @@ ${prompt}
 Provide a comprehensive, high-thinking revenue report and clear recommendations.`;
 
     // Attempt with requested 'gemini-4-argon' and ThinkingLevel.HIGH
+    const ai = getGenAIClient();
     let responseText = '';
     let modelUsed = 'gemini-4-argon';
 

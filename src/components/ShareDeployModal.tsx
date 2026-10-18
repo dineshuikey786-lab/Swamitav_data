@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Share2,
@@ -14,6 +14,11 @@ import {
   Github,
   Terminal,
   ArrowRight,
+  Download,
+  RefreshCw,
+  AlertCircle,
+  GitCommit,
+  KeyRound,
 } from 'lucide-react';
 
 interface ShareDeployModalProps {
@@ -25,9 +30,10 @@ interface ShareDeployModalProps {
   recordsCount?: number;
   patwarisCount?: number;
   userEmail?: string;
+  currentCsv?: string;
 }
 
-type DeployTab = 'netlify' | 'github' | 'live' | 'vercel';
+type DeployTab = 'github' | 'netlify' | 'live' | 'vercel';
 
 export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   isOpen,
@@ -38,11 +44,56 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   recordsCount = 480,
   patwarisCount = 36,
   userEmail = 'dineshuikey786@gmail.com',
+  currentCsv = '',
 }) => {
-  const [activeTab, setActiveTab] = useState<DeployTab>('netlify');
+  const [activeTab, setActiveTab] = useState<DeployTab>('github');
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [linkMode, setLinkMode] = useState<'live' | 'base'>('live');
-  const [githubRepoName, setGithubRepoName] = useState('patwari-revenue-dashboard');
+  const [githubRepoName, setGithubRepoName] = useState('dineshuikey786/patwari-revenue-dashboard');
+  const [githubToken, setGithubToken] = useState('');
+  const [commitMessage, setCommitMessage] = useState(
+    `Update Patwari Dashboard data (${recordsCount} records, latest: ${latestDate})`
+  );
+  const [gitStatus, setGitStatus] = useState<{
+    branch: string;
+    commitHash: string;
+    commitMessage: string;
+    remoteUrl: string;
+  } | null>(null);
+  const [isPushing, setIsPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{
+    type: 'success' | 'error' | 'info';
+    text: string;
+    repoWebUrl?: string;
+    commitHash?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setCommitMessage(`Update Patwari Dashboard data (${recordsCount} records, latest: ${latestDate})`);
+  }, [recordsCount, latestDate]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/github/status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.commitHash) {
+          setGitStatus({
+            branch: data.branch || 'main',
+            commitHash: data.commitHash,
+            commitMessage: data.commitMessage || '',
+            remoteUrl: data.remoteUrl || '',
+          });
+          if (data.remoteUrl) {
+            const match = data.remoteUrl.match(/github\.com[/:]([^/]+\/[^/.]+)/);
+            if (match && match[1]) {
+              setGithubRepoName(match[1]);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -59,9 +110,81 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
     setTimeout(() => setCopiedType(null), 3000);
   };
 
+  const handleCommitOrPushToGithub = async (withRemoteToken: boolean) => {
+    setIsPushing(true);
+    setPushResult({
+      type: 'info',
+      text: withRemoteToken
+        ? 'वर्तमान डेटा initialData.ts में सेव करके सीधे GitHub रिपॉजिटरी पर पुश किया जा रहा है...'
+        : 'वर्तमान डैशबोर्ड डेटा को src/data/initialData.ts और स्थानीय Git रिपॉजिटरी में कमिट किया जा रहा है...',
+    });
+
+    try {
+      const res = await fetch('/api/github/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl: githubRepoName.trim(),
+          githubToken: withRemoteToken ? githubToken.trim() : '',
+          commitMessage: commitMessage.trim() || `Update Patwari Dashboard data (${latestDate})`,
+          branch: 'main',
+          csv: currentCsv || undefined,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setPushResult({
+          type: 'error',
+          text: data.error || 'Git कमिट/पुश में त्रुटि आई।',
+          commitHash: data.commitHash,
+        });
+      } else {
+        if (data.commitHash) {
+          setGitStatus((prev) => ({
+            branch: prev?.branch || 'main',
+            commitHash: data.commitHash,
+            commitMessage: commitMessage,
+            remoteUrl: githubRepoName,
+          }));
+        }
+        setPushResult({
+          type: 'success',
+          text: data.message || 'डेटा सफलतापूर्वक Git में सुरक्षित हो गया!',
+          repoWebUrl: data.repoWebUrl,
+          commitHash: data.commitHash,
+        });
+      }
+    } catch (err: any) {
+      setPushResult({
+        type: 'error',
+        text: err?.message || 'सर्वर से संपर्क करने में त्रुटि।',
+      });
+    } finally {
+      setIsPushing(false);
+    }
+  };
+
+  const handleDownloadInitialDataTs = () => {
+    if (!currentCsv) return;
+    const safeCsv = currentCsv.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+    const content = `// Initial raw dataset provided from Patwari revenue monitoring (Tamia / Chhindwara circle)\nexport const INITIAL_CSV_RAW = \`${safeCsv.trim()}\`;\n`;
+    const blob = new Blob([content], { type: 'text/typescript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'initialData.ts';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const whatsappMessage = `📊 पटवारी प्रगति एवं राजस्व निगरानी डैशबोर्ड (वृत्त: तामिया):\n📅 अद्यतन स्थिति: ${latestDate}\n📂 कुल रिकॉर्ड्स: ${recordsCount} (${patwarisCount} पटवारी)\n\nलाइव डैशबोर्ड देखने के लिए क्लिक करें:\n${currentActiveUrl}`;
 
-  const gitPushCommand = `git remote add origin https://github.com/YOUR_GITHUB_USERNAME/${githubRepoName}.git\ngit push -u origin main`;
+  const normalizedRepoSlug = githubRepoName.includes('/')
+    ? githubRepoName.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
+    : `dineshuikey786/${githubRepoName}`;
+
+  const gitPushCommand = `git remote set-url origin https://github.com/${normalizedRepoSlug}.git 2>/dev/null || git remote add origin https://github.com/${normalizedRepoSlug}.git\ngit branch -M main\ngit push -u origin main`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -270,45 +393,170 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
           {/* TAB 2: GITHUB PUSH */}
           {activeTab === 'github' && (
             <div className="space-y-4">
-              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Github className="h-5 w-5 text-white" />
-                    <h3 className="text-sm font-bold text-white">GitHub रिपॉजिटरी पर कोड पुश करें</h3>
+              {/* Status Result Banner */}
+              {pushResult && (
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start justify-between gap-3 text-xs ${
+                    pushResult.type === 'success'
+                      ? 'bg-emerald-950/70 border-emerald-700 text-emerald-200'
+                      : pushResult.type === 'error'
+                      ? 'bg-rose-950/70 border-rose-700 text-rose-200'
+                      : 'bg-blue-950/70 border-blue-700 text-blue-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {pushResult.type === 'success' ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                    ) : pushResult.type === 'error' ? (
+                      <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5 animate-spin" />
+                    )}
+                    <div className="leading-relaxed">
+                      <div className="font-semibold">{pushResult.text}</div>
+                      {pushResult.repoWebUrl && (
+                        <a
+                          href={pushResult.repoWebUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 mt-1 text-emerald-300 underline font-mono"
+                        >
+                          <span>{pushResult.repoWebUrl}</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
-                    Local Git Initialized
-                  </span>
+                </div>
+              )}
+
+              {/* Card 1: Save Current Dashboard Data into Codebase & Push to GitHub */}
+              <div className="bg-gradient-to-br from-emerald-950/60 via-slate-900 to-slate-950 border border-emerald-700/60 rounded-xl p-4 sm:p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Github className="h-5 w-5 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-white">
+                      वर्तमान डैशबोर्ड डेटा को GitHub पर पुश करें
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+                      <span className="font-mono font-bold">{recordsCount}</span> रिकॉर्ड्स ({latestDate})
+                    </span>
+                    {gitStatus && (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+                        {gitStatus.branch} • #{gitStatus.commitHash}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  इस प्रोजेक्ट का स्थानीय Git रिपॉजिटरी (Local Git Repository) <code>main</code> ब्रांच पर कमिट हो चुका है। अपने GitHub खाते में कोड भेजने के लिए नीचे दी गई कमांड्स का उपयोग करें:
+                  डैशबोर्ड में वर्तमान में सक्रिय संपूर्ण डेटा (<span className="font-mono font-bold text-white">{recordsCount}</span> रिकॉर्ड्स, नवीनतम तिथि <span className="font-mono font-bold text-emerald-400">{latestDate}</span>) को सीधे <code>src/data/initialData.ts</code> में सुरक्षित करके Git कमिट और GitHub रिपॉजिटरी पर पुश करें:
                 </p>
 
-                {/* Repo Name input */}
-                <div className="flex items-center gap-2 text-xs">
-                  <label htmlFor="repo-name" className="text-slate-400 whitespace-nowrap">
-                    रिपॉजिटरी नाम:
-                  </label>
-                  <input
-                    id="repo-name"
-                    type="text"
-                    value={githubRepoName}
-                    onChange={(e) => setGithubRepoName(e.target.value)}
-                    className="bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg text-white font-mono text-xs focus:outline-none focus:border-teal-500 w-64"
-                  />
-                  <a
-                    href="https://github.com/new"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-400 hover:underline flex items-center gap-1 text-[11px] ml-auto"
-                  >
-                    <span>github.com/new पर नया रेपो बनाएं</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
+                {/* Form Inputs for Commit & GitHub Remote */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="space-y-1">
+                    <label htmlFor="repo-name" className="text-slate-300 font-medium flex items-center justify-between">
+                      <span>GitHub रिपॉजिटरी (Username/Repo):</span>
+                      <a
+                        href="https://github.com/new"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-400 hover:underline inline-flex items-center gap-0.5 text-[10px]"
+                      >
+                        <span>+ नया रेपो</span>
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    </label>
+                    <input
+                      id="repo-name"
+                      type="text"
+                      placeholder="dineshuikey786/patwari-revenue-dashboard"
+                      value={githubRepoName}
+                      onChange={(e) => setGithubRepoName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label htmlFor="gh-token" className="text-slate-300 font-medium flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <KeyRound className="h-3 w-3 text-amber-400" />
+                        <span>GitHub Token (सीधे पुश हेतु):</span>
+                      </span>
+                      <a
+                        href="https://github.com/settings/tokens/new?scopes=repo&description=PatwariDashboardDeploy"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-amber-400 hover:underline inline-flex items-center gap-0.5 text-[10px]"
+                      >
+                        <span>Token प्राप्त करें</span>
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    </label>
+                    <input
+                      id="gh-token"
+                      type="password"
+                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (वैकल्पिक)"
+                      value={githubToken}
+                      onChange={(e) => setGithubToken(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
 
-                {/* Terminal Commands Box */}
+                <div className="space-y-1 text-xs">
+                  <label htmlFor="commit-msg" className="text-slate-300 font-medium">
+                    Commit Message:
+                  </label>
+                  <input
+                    id="commit-msg"
+                    type="text"
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 px-3 py-1.5 rounded-xl text-slate-200 font-mono text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    disabled={isPushing}
+                    onClick={() => handleCommitOrPushToGithub(false)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-lg active:scale-95"
+                  >
+                    <GitCommit className="h-4 w-4" />
+                    <span>वर्तमान डेटा कोडबेस (initialData.ts) व Git में कमिट करें</span>
+                  </button>
+
+                  {githubToken.trim() && (
+                    <button
+                      type="button"
+                      disabled={isPushing}
+                      onClick={() => handleCommitOrPushToGithub(true)}
+                      className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-lg active:scale-95"
+                    >
+                      <Github className="h-4 w-4" />
+                      <span>🚀 सीधे GitHub रिपॉजिटरी पर पुश करें</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadInitialDataTs}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-700"
+                  >
+                    <Download className="h-3.5 w-3.5 text-teal-400" />
+                    <span>initialData.ts डाउनलोड करें</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Terminal Commands */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
                 <div className="bg-black/80 rounded-xl p-3 border border-slate-800 text-xs relative">
                   <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800 text-[11px] text-slate-400 font-medium font-sans">
                     <span className="flex items-center gap-1.5">
@@ -336,13 +584,6 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
                   <pre className="font-mono text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
                     {gitPushCommand}
                   </pre>
-                </div>
-
-                <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                  <Info className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                  <span>
-                    <code>YOUR_GITHUB_USERNAME</code> के स्थान पर अपना GitHub यूज़रनेम लिखें। पुश होने के बाद आप सीधे Netlify से कनेक्ट कर सकेंगे।
-                  </span>
                 </div>
               </div>
             </div>

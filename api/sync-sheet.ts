@@ -1,5 +1,13 @@
 import { INITIAL_CSV_RAW } from '../src/data/initialData.ts';
-import { buildGoogleSheetCandidateUrls } from '../src/utils/patwariAnalytics.ts';
+import {
+  DEFAULT_GOOGLE_SHEET_URL,
+  buildGoogleSheetCandidateUrls,
+  parseCSVDataset,
+  getAvailableDates,
+  computeDatasetFingerprint,
+  mergeSyncedRecordsWithHistory,
+  serializeRecordsToCsv,
+} from '../src/utils/patwariAnalytics.ts';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -17,24 +25,14 @@ export default async function handler(req: any, res: any) {
 
   try {
     const rawUrl = (req.query?.url as string)?.trim();
-
-    if (
+    const isDefaultOrLatest =
       !rawUrl ||
       rawUrl === 'default' ||
       rawUrl === 'latest' ||
-      rawUrl.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms')
-    ) {
-      return res.status(200).json({
-        csv: INITIAL_CSV_RAW,
-        sourceUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
-        syncedAt: new Date().toISOString(),
-        isOfficial: true,
-        recordCount: 960,
-        latestDate: '16-10-2026',
-      });
-    }
+      rawUrl.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms');
 
-    const candidates = buildGoogleSheetCandidateUrls(rawUrl, Date.now());
+    const effectiveUrl = isDefaultOrLatest ? DEFAULT_GOOGLE_SHEET_URL : rawUrl;
+    const candidates = buildGoogleSheetCandidateUrls(effectiveUrl, Date.now());
     let lastError = 'Failed to fetch spreadsheet';
 
     for (const candidateUrl of candidates) {
@@ -50,12 +48,26 @@ export default async function handler(req: any, res: any) {
 
         if (response.ok) {
           const csvText = await response.text();
-          if (csvText && !csvText.trim().startsWith('<!DOCTYPE html')) {
-            return res.status(200).json({
-              csv: csvText,
-              sourceUrl: candidateUrl,
-              syncedAt: new Date().toISOString(),
-            });
+          if (csvText && !csvText.trim().startsWith('<!DOCTYPE html') && !csvText.trim().startsWith('<html')) {
+            const parsedIncoming = parseCSVDataset(csvText);
+            if (parsedIncoming.length > 0) {
+              const baseParsed = parseCSVDataset(INITIAL_CSV_RAW);
+              const merged = mergeSyncedRecordsWithHistory(baseParsed, parsedIncoming);
+              const normalizedCsv = serializeRecordsToCsv(merged);
+              const dates = getAvailableDates(merged);
+              const latestDate = dates.length > 0 ? dates[dates.length - 1] : '20-10-2026';
+
+              return res.status(200).json({
+                csv: normalizedCsv,
+                sourceUrl: effectiveUrl,
+                resolvedExportUrl: candidateUrl,
+                syncedAt: new Date().toISOString(),
+                isOfficial: true,
+                recordCount: merged.length,
+                latestDate,
+                fingerprint: computeDatasetFingerprint(merged),
+              });
+            }
           }
         }
         lastError = `Google Sheet fetch returned status ${response.status}`;
@@ -64,8 +76,24 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    if (isDefaultOrLatest) {
+      const baseParsed = parseCSVDataset(INITIAL_CSV_RAW);
+      const dates = getAvailableDates(baseParsed);
+      const latestDate = dates.length > 0 ? dates[dates.length - 1] : '20-10-2026';
+      return res.status(200).json({
+        csv: INITIAL_CSV_RAW,
+        sourceUrl: DEFAULT_GOOGLE_SHEET_URL,
+        syncedAt: new Date().toISOString(),
+        isOfficial: true,
+        recordCount: baseParsed.length,
+        latestDate,
+        fingerprint: computeDatasetFingerprint(baseParsed),
+      });
+    }
+
     return res.status(502).json({ error: lastError });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to sync spreadsheet' });
   }
 }
+

@@ -7,12 +7,16 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { INITIAL_CSV_RAW } from './src/data/initialData.ts';
 import {
+  DEFAULT_GOOGLE_SHEET_URL,
+  DEFAULT_GITHUB_REPO,
   parseCSVDataset,
   getAvailableDates,
   computeDatasetFingerprint,
   buildGoogleSheetCandidateUrls,
   mergeSyncedRecordsWithHistory,
   serializeRecordsToCsv,
+  extractCsvFromInitialDataTs,
+  chooseFresherDataset,
 } from './src/utils/patwariAnalytics.ts';
 
 dotenv.config();
@@ -41,11 +45,10 @@ function getGenAIClient() {
 const initialParsed = parseCSVDataset(INITIAL_CSV_RAW);
 const initialDates = getAvailableDates(initialParsed);
 let activeSyncedCsv = INITIAL_CSV_RAW;
-let activeSheetUrl =
-  'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit?usp=sharing';
+let activeSheetUrl = DEFAULT_GOOGLE_SHEET_URL;
 let activeSyncedAt = new Date().toISOString();
-let activeLatestDate = initialDates.length > 0 ? initialDates[initialDates.length - 1] : '13-10-2026';
-let activeRecordCount = initialParsed.length || 480;
+let activeLatestDate = initialDates.length > 0 ? initialDates[initialDates.length - 1] : '20-10-2026';
+let activeRecordCount = initialParsed.length || 1280;
 let activeFingerprint = computeDatasetFingerprint(initialParsed);
 
 /**
@@ -74,6 +77,29 @@ function ensureGitRepoInitialized(commitMsg = 'Sync latest Patwari dashboard dat
       execSync('git init -b main', { cwd: __dirname, stdio: 'pipe' });
       execSync('git config user.name "Dinesh Uikey"', { cwd: __dirname, stdio: 'pipe' });
       execSync('git config user.email "dineshuikey786@gmail.com"', { cwd: __dirname, stdio: 'pipe' });
+      try {
+        execSync(`git remote add origin "https://github.com/${DEFAULT_GITHUB_REPO}.git"`, {
+          cwd: __dirname,
+          stdio: 'pipe',
+        });
+      } catch {}
+    } else {
+      try {
+        const existingRemote = execSync('git remote get-url origin', { cwd: __dirname, encoding: 'utf8' }).trim();
+        if (!existingRemote || existingRemote.includes('dineshuikey786/patwari-revenue-dashboard')) {
+          execSync(`git remote set-url origin "https://github.com/${DEFAULT_GITHUB_REPO}.git"`, {
+            cwd: __dirname,
+            stdio: 'pipe',
+          });
+        }
+      } catch {
+        try {
+          execSync(`git remote add origin "https://github.com/${DEFAULT_GITHUB_REPO}.git"`, {
+            cwd: __dirname,
+            stdio: 'pipe',
+          });
+        } catch {}
+      }
     }
     execSync('git add -A', { cwd: __dirname, stdio: 'pipe' });
     const statusOut = execSync('git status --porcelain', { cwd: __dirname, encoding: 'utf8' }).trim();
@@ -320,11 +346,12 @@ app.get('/api/github/status', (_req, res) => {
     const commitHash = execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf8' }).trim();
     const commitMessage = execSync('git log -1 --pretty=%B', { cwd: __dirname, encoding: 'utf8' }).trim();
     const commitTime = execSync('git log -1 --format=%cd --date=iso', { cwd: __dirname, encoding: 'utf8' }).trim();
-    let remoteUrl = '';
+    let remoteUrl = `https://github.com/${DEFAULT_GITHUB_REPO}.git`;
     try {
-      remoteUrl = execSync('git remote get-url origin', { cwd: __dirname, encoding: 'utf8' }).trim();
-      // Strip any embedded credentials if present
-      remoteUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+      const configuredRemote = execSync('git remote get-url origin', { cwd: __dirname, encoding: 'utf8' }).trim();
+      if (configuredRemote) {
+        remoteUrl = configuredRemote.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+      }
     } catch {}
 
     return res.json({
@@ -340,6 +367,98 @@ app.get('/api/github/status', (_req, res) => {
     });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to read Git status' });
+  }
+});
+
+/**
+ * GitHub Pull Endpoint: Pulls latest initialData.ts from GitHub repository and/or live Google Sheet,
+ * merges to keep the freshest dataset, persists to initialData.ts, and returns updated CSV.
+ */
+app.get('/api/github/pull', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  try {
+    const repoParam = ((req.query.repo as string) || DEFAULT_GITHUB_REPO).trim();
+    const branchParam = ((req.query.branch as string) || 'main').trim();
+    const cleanRepo = repoParam
+      .replace(/^https?:\/\/github\.com\//, '')
+      .replace(/\.git$/, '')
+      .replace(/\/$/, '');
+
+    let bestRecords = parseCSVDataset(activeSyncedCsv);
+    let sourceLabel = 'स्थानीय मास्टर डेटा';
+
+    // 1. Check GitHub raw initialData.ts
+    try {
+      const rawGhUrl = `https://raw.githubusercontent.com/${cleanRepo}/${branchParam}/src/data/initialData.ts?_cb=${Date.now()}`;
+      const ghRes = await fetch(rawGhUrl, {
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+      });
+      if (ghRes.ok) {
+        const ghText = await ghRes.text();
+        const extractedCsv = extractCsvFromInitialDataTs(ghText);
+        if (extractedCsv) {
+          const ghParsed = parseCSVDataset(extractedCsv);
+          if (ghParsed.length > 0) {
+            bestRecords = chooseFresherDataset(bestRecords, ghParsed);
+            sourceLabel = `GitHub (${cleanRepo})`;
+          }
+        }
+      }
+    } catch {}
+
+    // 2. Also check live Google Sheet so if sheet has newer dates than GitHub, we include them
+    try {
+      const sheetCandidates = buildGoogleSheetCandidateUrls(activeSheetUrl || DEFAULT_GOOGLE_SHEET_URL, Date.now());
+      for (const candidateUrl of sheetCandidates) {
+        try {
+          const sheetRes = await fetch(candidateUrl, {
+            headers: {
+              Accept: 'text/csv, text/plain, */*',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            },
+          });
+          if (sheetRes.ok) {
+            const text = await sheetRes.text();
+            if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
+              const sheetParsed = parseCSVDataset(text);
+              if (sheetParsed.length > 0) {
+                const merged = mergeSyncedRecordsWithHistory(bestRecords, sheetParsed);
+                bestRecords = chooseFresherDataset(bestRecords, merged);
+                sourceLabel = `Google Sheet + GitHub (${cleanRepo})`;
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+
+    const finalCsv = serializeRecordsToCsv(bestRecords);
+    const dates = getAvailableDates(bestRecords);
+    const newestDate = dates.length > 0 ? dates[dates.length - 1] : activeLatestDate;
+
+    activeSyncedCsv = finalCsv;
+    activeLatestDate = newestDate;
+    activeRecordCount = bestRecords.length;
+    activeSyncedAt = new Date().toISOString();
+    activeFingerprint = computeDatasetFingerprint(bestRecords);
+    persistCsvToInitialDataFile(finalCsv);
+    ensureGitRepoInitialized(`Sync latest dataset (${bestRecords.length} records, latest: ${newestDate})`);
+
+    return res.json({
+      success: true,
+      csv: finalCsv,
+      source: sourceLabel,
+      repo: cleanRepo,
+      branch: branchParam,
+      recordCount: activeRecordCount,
+      latestDate: activeLatestDate,
+      dates,
+      syncedAt: activeSyncedAt,
+      fingerprint: activeFingerprint,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to pull from GitHub' });
   }
 });
 

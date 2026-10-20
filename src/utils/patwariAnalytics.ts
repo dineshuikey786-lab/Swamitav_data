@@ -1124,6 +1124,67 @@ export function computeDatasetFingerprint(records: PatwariRecord[]): string {
 }
 
 /**
+ * Official connected Google Sheet URL for Circle Tamia Patwari Progress Monitoring
+ */
+export const DEFAULT_GOOGLE_SHEET_URL =
+  'https://docs.google.com/spreadsheets/d/1fq-bMoVtM2F4xJC0neGXtUOnDZsICJscEcY0EvmcdnE/edit?usp=sharing';
+
+/**
+ * Official connected GitHub repository for Circle Tamia Patwari Progress Dashboard
+ */
+export const DEFAULT_GITHUB_REPO = 'dineshuikey786-lab/Swamitav_data';
+
+/**
+ * Extracts raw CSV content from a TypeScript initialData.ts file fetched from GitHub raw URL.
+ */
+export function extractCsvFromInitialDataTs(tsContent: string): string {
+  if (!tsContent) return '';
+  const trimmed = tsContent.trim();
+  if (trimmed.startsWith('S.No,') || trimmed.startsWith('"S.No"')) {
+    return trimmed;
+  }
+  const match = trimmed.match(/INITIAL_CSV_RAW\s*=\s*`([\s\S]*?)`\s*;/);
+  if (match && match[1]) {
+    return match[1].replace(/\\`/g, '`').replace(/\\\$\{/g, '${').replace(/\\\\/g, '\\').trim();
+  }
+  return '';
+}
+
+/**
+ * Compares two parsed datasets and returns whichever dataset has newer dates, more date snapshots, or higher progress.
+ */
+export function chooseFresherDataset(
+  primary: PatwariRecord[],
+  candidate: PatwariRecord[]
+): PatwariRecord[] {
+  if (!candidate || candidate.length === 0) return primary;
+  if (!primary || primary.length === 0) return candidate;
+
+  const datesA = getAvailableDates(primary);
+  const datesB = getAvailableDates(candidate);
+  const latestA = datesA[datesA.length - 1] || '';
+  const latestB = datesB[datesB.length - 1] || '';
+
+  const toSortable = (d: string) => {
+    const parts = d.split('-');
+    return parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : d;
+  };
+
+  if (toSortable(latestB) > toSortable(latestA)) return candidate;
+  if (toSortable(latestA) > toSortable(latestB)) return primary;
+
+  if (datesB.length > datesA.length) return candidate;
+  if (datesA.length > datesB.length) return primary;
+
+  if (candidate.length > primary.length) return candidate;
+  if (primary.length > candidate.length) return primary;
+
+  const compA = primary.reduce((sum, r) => sum + (r.completed || 0) + (r.patwariVerification || 0), 0);
+  const compB = candidate.reduce((sum, r) => sum + (r.completed || 0) + (r.patwariVerification || 0), 0);
+  return compB >= compA ? candidate : primary;
+}
+
+/**
  * Builds candidate zero-cache CSV export URLs from a Google Sheets link (standard edit URL, pubhtml, pub CSV, or raw Sheet ID).
  */
 export function buildGoogleSheetCandidateUrls(rawUrl: string, cacheBust?: number): string[] {
@@ -1196,4 +1257,5 @@ export function mergeSyncedRecordsWithHistory(
   }
   return Array.from(deduped.values());
 }
+
 

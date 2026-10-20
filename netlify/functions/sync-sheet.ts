@@ -2,7 +2,15 @@
 // Path: /.netlify/functions/sync-sheet
 
 import { INITIAL_CSV_RAW } from '../../src/data/initialData.ts';
-import { buildGoogleSheetCandidateUrls } from '../../src/utils/patwariAnalytics.ts';
+import {
+  DEFAULT_GOOGLE_SHEET_URL,
+  buildGoogleSheetCandidateUrls,
+  parseCSVDataset,
+  getAvailableDates,
+  computeDatasetFingerprint,
+  mergeSyncedRecordsWithHistory,
+  serializeRecordsToCsv,
+} from '../../src/utils/patwariAnalytics.ts';
 
 export const handler = async (event: any) => {
   const headers = {
@@ -19,28 +27,14 @@ export const handler = async (event: any) => {
 
   try {
     const rawUrl = event.queryStringParameters?.url?.trim();
-
-    if (
+    const isDefaultOrLatest =
       !rawUrl ||
       rawUrl === 'default' ||
       rawUrl === 'latest' ||
-      rawUrl.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms')
-    ) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          csv: INITIAL_CSV_RAW,
-          sourceUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
-          syncedAt: new Date().toISOString(),
-          isOfficial: true,
-          recordCount: 960,
-          latestDate: '16-10-2026',
-        }),
-      };
-    }
+      rawUrl.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms');
 
-    const candidates = buildGoogleSheetCandidateUrls(rawUrl, Date.now());
+    const effectiveUrl = isDefaultOrLatest ? DEFAULT_GOOGLE_SHEET_URL : rawUrl;
+    const candidates = buildGoogleSheetCandidateUrls(effectiveUrl, Date.now());
     let lastError = 'Google Sheet fetch failed';
 
     for (const candidateUrl of candidates) {
@@ -56,22 +50,56 @@ export const handler = async (event: any) => {
 
         if (response.ok) {
           const csvText = await response.text();
-          if (csvText && !csvText.trim().startsWith('<!DOCTYPE html')) {
-            return {
-              statusCode: 200,
-              headers,
-              body: JSON.stringify({
-                csv: csvText,
-                sourceUrl: candidateUrl,
-                syncedAt: new Date().toISOString(),
-              }),
-            };
+          if (csvText && !csvText.trim().startsWith('<!DOCTYPE html') && !csvText.trim().startsWith('<html')) {
+            const parsedIncoming = parseCSVDataset(csvText);
+            if (parsedIncoming.length > 0) {
+              const baseParsed = parseCSVDataset(INITIAL_CSV_RAW);
+              const merged = mergeSyncedRecordsWithHistory(baseParsed, parsedIncoming);
+              const normalizedCsv = serializeRecordsToCsv(merged);
+              const dates = getAvailableDates(merged);
+              const latestDate = dates.length > 0 ? dates[dates.length - 1] : '20-10-2026';
+
+              return {
+                statusCode: 200,
+                headers,
+                body: JSON.stringify({
+                  csv: normalizedCsv,
+                  sourceUrl: effectiveUrl,
+                  resolvedExportUrl: candidateUrl,
+                  syncedAt: new Date().toISOString(),
+                  isOfficial: true,
+                  recordCount: merged.length,
+                  latestDate,
+                  fingerprint: computeDatasetFingerprint(merged),
+                }),
+              };
+            }
           }
         }
         lastError = `Google Sheet fetch failed with status ${response.status}`;
       } catch (e: any) {
         lastError = e?.message || lastError;
       }
+    }
+
+    // Fallback to bundled 1280-record dataset if live fetch fails during 'latest' / 'default' request
+    if (isDefaultOrLatest) {
+      const baseParsed = parseCSVDataset(INITIAL_CSV_RAW);
+      const dates = getAvailableDates(baseParsed);
+      const latestDate = dates.length > 0 ? dates[dates.length - 1] : '20-10-2026';
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          csv: INITIAL_CSV_RAW,
+          sourceUrl: DEFAULT_GOOGLE_SHEET_URL,
+          syncedAt: new Date().toISOString(),
+          isOfficial: true,
+          recordCount: baseParsed.length,
+          latestDate,
+          fingerprint: computeDatasetFingerprint(baseParsed),
+        }),
+      };
     }
 
     return {
@@ -87,3 +115,4 @@ export const handler = async (event: any) => {
     };
   }
 };
+

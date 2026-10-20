@@ -6,6 +6,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { INITIAL_CSV_RAW } from './data/initialData';
 import {
+  DEFAULT_GOOGLE_SHEET_URL,
+  DEFAULT_GITHUB_REPO,
   parseCSVDataset,
   getAvailableDates,
   calculateKpis,
@@ -16,6 +18,8 @@ import {
   computeDatasetFingerprint,
   buildGoogleSheetCandidateUrls,
   mergeSyncedRecordsWithHistory,
+  extractCsvFromInitialDataTs,
+  chooseFresherDataset,
   PatwariRecord,
 } from './utils/patwariAnalytics';
 import { exportDashboardToExcel } from './utils/exportUtils';
@@ -52,52 +56,61 @@ import {
   X,
 } from 'lucide-react';
 
-const STORAGE_KEY = 'patwari_dashboard_records_v3';
-const SHEET_URL_KEY = 'patwari_dashboard_sheet_url_v2';
+const STORAGE_KEY = 'patwari_dashboard_records_v4';
+const SHEET_URL_KEY = 'patwari_dashboard_sheet_url_v3';
 const AUTO_SYNC_INTERVAL_KEY = 'patwari_dashboard_autosync_sec_v2';
 
 export default function App() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
-  // Load initial dataset from localStorage or fallback to updated master data (960 rows, 11-10-2026 to 16-10-2026)
+  // Load initial dataset comparing bundled master data (1280 rows, 11-10-2026 to 20-10-2026) with localStorage cache
   const [records, setRecords] = useState<PatwariRecord[]>(() => {
+    const bundled = parseCSVDataset(INITIAL_CSV_RAW);
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 960) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           const map = new Map<string, PatwariRecord>();
           for (const rec of parsed) {
             if (rec && rec.village && rec.date) {
               map.set(`${(rec.lgdCode || rec.village).trim()}::${rec.date}`, rec);
             }
           }
-          if (map.size >= 960) return Array.from(map.values());
+          const cachedDeduped = Array.from(map.values());
+          return chooseFresherDataset(bundled, cachedDeduped);
         }
       }
     } catch (e) {
       console.warn('Could not read cached records:', e);
     }
-    return parseCSVDataset(INITIAL_CSV_RAW);
+    return bundled;
   });
 
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
-    // Check URL search params first, then localStorage
     try {
       const params = new URLSearchParams(window.location.search);
       const urlSheet = params.get('sheet') || params.get('sheetUrl');
-      if (urlSheet) return urlSheet;
+      if (urlSheet && urlSheet.trim()) return urlSheet.trim();
     } catch {}
-    return localStorage.getItem(SHEET_URL_KEY) || '';
+    const saved = localStorage.getItem(SHEET_URL_KEY);
+    if (saved && saved.trim() && !saved.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms')) {
+      return saved.trim();
+    }
+    return DEFAULT_GOOGLE_SHEET_URL;
   });
   const [inlineSheetInput, setInlineSheetInput] = useState<string>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const urlSheet = params.get('sheet') || params.get('sheetUrl');
-      if (urlSheet) return urlSheet;
+      if (urlSheet && urlSheet.trim()) return urlSheet.trim();
     } catch {}
-    return localStorage.getItem(SHEET_URL_KEY) || '';
+    const saved = localStorage.getItem(SHEET_URL_KEY);
+    if (saved && saved.trim() && !saved.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms')) {
+      return saved.trim();
+    }
+    return DEFAULT_GOOGLE_SHEET_URL;
   });
 
   const [selectedPeriod, setSelectedPeriod] = useState<'day' | 'week' | 'month'>('day');
@@ -120,10 +133,19 @@ export default function App() {
     const dates = getAvailableDates(records);
     return dates.length > 0
       ? dates
-      : ['11-10-2026', '12-10-2026', '13-10-2026', '14-10-2026', '15-10-2026', '16-10-2026'];
+      : [
+          '11-10-2026',
+          '12-10-2026',
+          '15-10-2026',
+          '16-10-2026',
+          '17-10-2026',
+          '18-10-2026',
+          '19-10-2026',
+          '20-10-2026',
+        ];
   }, [records]);
 
-  // Selected date defaults to the latest available date (16-10-2026)
+  // Selected date defaults to the latest available date (20-10-2026)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -131,7 +153,7 @@ export default function App() {
       if (urlDate) return urlDate;
     } catch {}
     const dates = getAvailableDates(records);
-    return dates.length > 0 ? dates[dates.length - 1] : '16-10-2026';
+    return dates.length > 0 ? dates[dates.length - 1] : '20-10-2026';
   });
 
   const [syncNotification, setSyncNotification] = useState<{
@@ -139,10 +161,10 @@ export default function App() {
     text: string;
     latestDate?: string;
   } | null>(() => {
-    const latest = availableDates[availableDates.length - 1] || '16-10-2026';
+    const latest = availableDates[availableDates.length - 1] || '20-10-2026';
     return {
       type: 'success',
-      text: `Google Sheet मास्टर डेटा सक्रिय: सभी सेक्शन्स नवीनतम ${latest} प्रगति स्थिति (${availableDates.length} तिथियाँ, ${records.length} रिकॉर्ड्स) पर सिंक हैं।`,
+      text: `Google Sheet एवं GitHub लाइव डेटा सक्रिय: सभी सेक्शन्स और रिपोर्ट नवीनतम ${latest} प्रगति स्थिति (${availableDates.length} तिथियाँ, ${records.length} रिकॉर्ड्स) पर सिंक हैं।`,
       latestDate: latest,
     };
   });
@@ -275,57 +297,102 @@ export default function App() {
     return true;
   }, [selectedDate, sheetUrl]);
 
-  // Check URL query parameters or saved localStorage Google Sheet URL and sync dataset on mount
+  // Check URL query parameters, live Google Sheet, and GitHub raw initialData.ts on mount
   useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const urlSheet = params.get('sheet') || params.get('sheetUrl') || localStorage.getItem(SHEET_URL_KEY) || '';
-      const urlDate = params.get('date');
+    let isMounted = true;
+    const syncLatestOnStartup = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const savedSheet = localStorage.getItem(SHEET_URL_KEY);
+        const urlSheet =
+          params.get('sheet') ||
+          params.get('sheetUrl') ||
+          (savedSheet && !savedSheet.includes('1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms')
+            ? savedSheet
+            : DEFAULT_GOOGLE_SHEET_URL);
+        const urlDate = params.get('date');
 
-      if (urlSheet && urlSheet.trim()) {
-        const cleanSheet = urlSheet.trim();
-        setSheetUrl(cleanSheet);
-        fetch(`/api/sync-sheet?url=${encodeURIComponent(cleanSheet)}&_cb=${Date.now()}`, { cache: 'no-store' })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data && data.csv) {
-              handleSyncCsvData(data.csv, 'लिंक की गई Google Sheet से', cleanSheet);
-              if (urlDate) setSelectedDate(urlDate);
-            }
-          })
-          .catch(() => {});
-      } else {
-        // Auto-fetch latest live server dataset on startup
-        fetch(`/api/sync-sheet?url=latest&_cb=${Date.now()}`, { cache: 'no-store' })
-          .then((res) => res.json())
-          .then((data) => {
+        const cleanSheet = urlSheet.trim() || DEFAULT_GOOGLE_SHEET_URL;
+        if (isMounted) setSheetUrl(cleanSheet);
+
+        let bestDataset = recordsRef.current;
+
+        // 1. Fetch from server/Netlify API proxy (/api/sync-sheet)
+        try {
+          const res = await fetch(`/api/sync-sheet?url=${encodeURIComponent(cleanSheet)}&_cb=${Date.now()}`, {
+            cache: 'no-store',
+          });
+          if (res.ok) {
+            const data = await res.json();
             if (data && data.csv) {
               const parsed = parseCSVDataset(data.csv);
               if (parsed.length > 0) {
-                setRecords(parsed);
-                const dates = getAvailableDates(parsed);
-                const newest = dates.length > 0 ? dates[dates.length - 1] : '16-10-2026';
-                setSelectedDate(urlDate || newest);
-                setSyncNotification({
-                  type: 'success',
-                  text: `Google Sheet लाइव डेटा सक्रिय: सभी सेक्शन्स नवीनतम ${urlDate || newest} स्थिति (${dates.length} तिथियाँ, ${parsed.length} रिकॉर्ड्स) पर सिंक हैं।`,
-                  latestDate: urlDate || newest,
-                });
+                bestDataset = chooseFresherDataset(bestDataset, mergeSyncedRecordsWithHistory(bestDataset, parsed));
               }
             }
-          })
-          .catch(() => {});
-      }
+          }
+        } catch {}
 
-      if (urlDate) {
-        setSelectedDate(urlDate);
+        // 2. Direct client-side Google Sheet export check (ensures Netlify / static hosts always get real-time sheet edits)
+        try {
+          const candidates = buildGoogleSheetCandidateUrls(cleanSheet, Date.now());
+          for (const candidateUrl of candidates) {
+            try {
+              const directRes = await fetch(candidateUrl, { cache: 'no-store' });
+              if (directRes.ok) {
+                const text = await directRes.text();
+                if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
+                  const parsed = parseCSVDataset(text);
+                  if (parsed.length > 0) {
+                    bestDataset = chooseFresherDataset(
+                      bestDataset,
+                      mergeSyncedRecordsWithHistory(bestDataset, parsed)
+                    );
+                    break;
+                  }
+                }
+              }
+            } catch {}
+          }
+        } catch {}
+
+        // 3. Direct GitHub raw initialData.ts check (ensures any GitHub push is immediately reflected)
+        try {
+          const ghRes = await fetch(
+            `https://raw.githubusercontent.com/${DEFAULT_GITHUB_REPO}/main/src/data/initialData.ts?_cb=${Date.now()}`,
+            { cache: 'no-store' }
+          );
+          if (ghRes.ok) {
+            const ghText = await ghRes.text();
+            const ghCsv = extractCsvFromInitialDataTs(ghText);
+            if (ghCsv) {
+              const ghParsed = parseCSVDataset(ghCsv);
+              if (ghParsed.length > 0) {
+                bestDataset = chooseFresherDataset(bestDataset, ghParsed);
+              }
+            }
+          }
+        } catch {}
+
+        if (isMounted && bestDataset.length > 0) {
+          const serializedBest = serializeRecordsToCsv(bestDataset);
+          handleSyncCsvData(serializedBest, 'Google Sheet एवं GitHub से', cleanSheet);
+          if (urlDate) {
+            setSelectedDate(urlDate);
+          }
+        }
+      } catch (e) {
+        console.warn('Startup sync error:', e);
       }
-    } catch (e) {
-      console.warn('URL param parse error:', e);
-    }
+    };
+
+    syncLatestOnStartup();
+    return () => {
+      isMounted = false;
+    };
   }, [handleSyncCsvData]);
 
-  // Reset to default 960 master records (11 to 16 October)
+  // Reset to default 1280 master records (11 to 20 October)
   const handleResetToDefault = useCallback(() => {
     const defaultData = parseCSVDataset(INITIAL_CSV_RAW);
     setRecords(defaultData);
@@ -360,46 +427,63 @@ export default function App() {
 
   // Update from Google Sheet or Link a new Google Sheet URL directly from the dashboard
   const handleUpdateFromGoogleSheet = async (customUrl?: string) => {
-    const targetUrl = typeof customUrl === 'string' ? customUrl.trim() : sheetUrl.trim();
+    const targetUrl =
+      typeof customUrl === 'string' && customUrl.trim()
+        ? customUrl.trim()
+        : sheetUrl.trim() || DEFAULT_GOOGLE_SHEET_URL;
     setIsUpdatingSheet(true);
     try {
-      const endpoint = targetUrl
-        ? `/api/sync-sheet?url=${encodeURIComponent(targetUrl)}&_cb=${Date.now()}`
-        : `/api/sync-sheet?url=latest&_cb=${Date.now()}`;
+      const endpoint = `/api/sync-sheet?url=${encodeURIComponent(targetUrl)}&_cb=${Date.now()}`;
 
       let csvText = '';
       let errorMsg = '';
 
-      const res = await fetch(endpoint, { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.csv) {
-        csvText = data.csv;
-      } else {
-        errorMsg = data.error || '';
-        // If user entered a custom Google Sheet URL, also try direct client-side Google Sheets gviz/export fetch
-        if (targetUrl) {
-          const candidates = buildGoogleSheetCandidateUrls(targetUrl, Date.now());
-          for (const candidateUrl of candidates) {
-            try {
-              const directRes = await fetch(candidateUrl, { cache: 'no-store' });
-              if (directRes.ok) {
-                const text = await directRes.text();
-                if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
-                  csvText = text;
-                  break;
-                }
-              }
-            } catch {}
-          }
+      try {
+        const res = await fetch(endpoint, { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.csv) {
+          csvText = data.csv;
+        } else {
+          errorMsg = data.error || '';
         }
+      } catch {}
+
+      // Direct client-side Google Sheets export fetch if serverless proxy returned error or HTML
+      if (!csvText && targetUrl) {
+        const candidates = buildGoogleSheetCandidateUrls(targetUrl, Date.now());
+        for (const candidateUrl of candidates) {
+          try {
+            const directRes = await fetch(candidateUrl, { cache: 'no-store' });
+            if (directRes.ok) {
+              const text = await directRes.text();
+              if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
+                csvText = text;
+                break;
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // Also check GitHub raw initialData.ts if still empty
+      if (!csvText) {
+        try {
+          const ghRes = await fetch(
+            `https://raw.githubusercontent.com/${DEFAULT_GITHUB_REPO}/main/src/data/initialData.ts?_cb=${Date.now()}`,
+            { cache: 'no-store' }
+          );
+          if (ghRes.ok) {
+            const ghText = await ghRes.text();
+            csvText = extractCsvFromInitialDataTs(ghText);
+          }
+        } catch {}
       }
 
       if (csvText) {
         if (targetUrl) {
           setSheetUrl(targetUrl);
         }
-        handleSyncCsvData(csvText, targetUrl ? 'लिंक की गई Google Sheet से' : 'Google Sheet से', targetUrl);
+        handleSyncCsvData(csvText, 'Google Sheet एवं GitHub से', targetUrl);
         setIsUpdatingSheet(false);
         return;
       }
@@ -437,7 +521,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, [records, selectedDate]);
 
-  // Automatic Google Sheet Change Detection Polling + Window Focus Check
+  // Automatic Google Sheet & GitHub Change Detection Polling + Window Focus Check
   useEffect(() => {
     if (!autoSyncInterval || autoSyncInterval <= 0) {
       setIsAutoSyncing(false);
@@ -448,21 +532,24 @@ export default function App() {
 
     const checkForSheetChanges = async () => {
       try {
-        const target = sheetUrl.trim() || 'latest';
+        const target = sheetUrl.trim() || DEFAULT_GOOGLE_SHEET_URL;
         const cb = Date.now();
         let incomingCsv = '';
 
-        const res = await fetch(`/api/sync-sheet?url=${encodeURIComponent(target)}&_cb=${cb}`, {
-          cache: 'no-store',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.csv) {
-            incomingCsv = data.csv;
+        try {
+          const res = await fetch(`/api/sync-sheet?url=${encodeURIComponent(target)}&_cb=${cb}`, {
+            cache: 'no-store',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.csv) {
+              incomingCsv = data.csv;
+            }
           }
-        } else if (sheetUrl.trim()) {
-          // Direct client-side fallback if running on static host
-          const candidates = buildGoogleSheetCandidateUrls(sheetUrl.trim(), cb);
+        } catch {}
+
+        if (!incomingCsv && target) {
+          const candidates = buildGoogleSheetCandidateUrls(target, cb);
           for (const candidateUrl of candidates) {
             try {
               const directRes = await fetch(candidateUrl, { cache: 'no-store' });
@@ -480,9 +567,10 @@ export default function App() {
         if (incomingCsv) {
           const parsed = parseCSVDataset(incomingCsv);
           if (parsed.length > 0) {
-            const incomingFp = computeDatasetFingerprint(parsed);
+            const merged = mergeSyncedRecordsWithHistory(recordsRef.current, parsed);
+            const incomingFp = computeDatasetFingerprint(merged);
             if (incomingFp !== lastFingerprintRef.current) {
-              handleSyncCsvData(incomingCsv, 'Google Sheet में बदलाव होने पर स्वतः');
+              handleSyncCsvData(serializeRecordsToCsv(merged), 'Google Sheet में बदलाव होने पर स्वतः', target);
             }
           }
         }
@@ -1038,6 +1126,9 @@ export default function App() {
           records={currentRecords}
           matrixRows={dateMatrixRows}
           dates={matrixDates}
+          onSelectDate={setSelectedDate}
+          onRefreshData={handleManualRefresh}
+          isRefreshing={isUpdatingSheet}
           onClose={() => setIsReportModalOpen(false)}
         />
       )}
@@ -1052,6 +1143,7 @@ export default function App() {
         patwarisCount={allPatwaris.length}
         userEmail="dineshuikey786@gmail.com"
         currentCsv={serializeRecordsToCsv(records)}
+        onPullData={(csv, label) => handleSyncCsvData(csv, label, sheetUrl)}
       />
     </div>
   );

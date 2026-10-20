@@ -21,8 +21,8 @@ export const handler = async (event: any) => {
       body: JSON.stringify({
         success: true,
         syncedAt: new Date().toISOString(),
-        latestDate: body.latestDate || '13-10-2026',
-        recordCount: body.recordCount || 480,
+        latestDate: body.latestDate || '20-10-2026',
+        recordCount: body.recordCount || 1280,
       }),
     };
   } catch (err: any) {

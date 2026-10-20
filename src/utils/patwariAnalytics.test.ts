@@ -16,6 +16,8 @@ import {
   computeDatasetFingerprint,
   buildGoogleSheetCandidateUrls,
   mergeSyncedRecordsWithHistory,
+  extractCsvFromInitialDataTs,
+  chooseFresherDataset,
 } from './patwariAnalytics.ts';
 
 const SAMPLE_CSV = `S.No,Village ▲,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date
@@ -244,4 +246,18 @@ test('parseCSVDataset infers sequential daily dates when gviz/tq strips dates wi
   assert.equal(parsed.length, 6);
   assert.deepEqual(getAvailableDates(parsed), ['12-10-2026', '13-10-2026', '14-10-2026']);
 });
+
+test('extractCsvFromInitialDataTs and chooseFresherDataset prefer newer GitHub/Sheet dataset over stale cache', () => {
+  const tsFile = `// Initial raw dataset\nexport const INITIAL_CSV_RAW = \`S.No,Village,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date\n1,अन्होनी,493692,Ruchin Arjariya,89,169,20,15,2,0,12,0.1348,20-10-2026\`;\n`;
+  const extracted = extractCsvFromInitialDataTs(tsFile);
+  const newerRecords = parseCSVDataset(extracted);
+  const olderRecords = parseCSVDataset(SAMPLE_CSV);
+
+  assert.equal(newerRecords.length, 1);
+  assert.equal(newerRecords[0].date, '20-10-2026');
+
+  const chosen = chooseFresherDataset(olderRecords, newerRecords);
+  assert.equal(chosen[0].date, '20-10-2026');
+});
+
 

@@ -14,6 +14,7 @@ import {
   Calendar,
   Building,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 import {
   OverallKpis,
@@ -32,6 +33,9 @@ interface OfficialReportModalProps {
   records?: PatwariRecord[];
   matrixRows?: PatwariDateMatrixRow[];
   dates?: string[];
+  onSelectDate?: (date: string) => void;
+  onRefreshData?: () => void;
+  isRefreshing?: boolean;
   onClose: () => void;
 }
 
@@ -43,6 +47,9 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   records = [],
   matrixRows = [],
   dates = [],
+  onSelectDate,
+  onRefreshData,
+  isRefreshing = false,
   onClose,
 }) => {
   const [includeVillages, setIncludeVillages] = useState(false);
@@ -125,20 +132,52 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span>शासकीय प्रगति प्रतिवेदन एवं एक्सपोर्ट</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-normal border border-emerald-500/30">
-                  {comparison.currentDate}
-                </span>
+                {dates.length > 0 && onSelectDate ? (
+                  <div className="flex items-center gap-1 bg-emerald-950/80 border border-emerald-700 rounded-lg px-2 py-0.5 text-xs">
+                    <Calendar className="h-3 w-3 text-emerald-400" />
+                    <select
+                      value={comparison.currentDate}
+                      onChange={(e) => onSelectDate(e.target.value)}
+                      className="bg-transparent text-emerald-200 font-mono font-bold focus:outline-none cursor-pointer"
+                      aria-label="रिपोर्ट दिनांक चुनें"
+                    >
+                      {dates.map((d, idx) => (
+                        <option key={d} value={d} className="bg-slate-900 text-white">
+                          {d} {idx === dates.length - 1 ? '(नवीनतम)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-normal border border-emerald-500/30">
+                    {comparison.currentDate}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400 font-normal">
-                प्रशासनिक शेयरिंग हेतु स्वच्छ PDF और विस्तृत एक्सेल (.xlsx) प्रारूप
+                प्रशासनिक शेयरिंग हेतु स्वच्छ PDF और विस्तृत एक्सेल (.xlsx) प्रारूप ({kpis.totalVillages} ग्राम • {kpis.completed} पूर्ण)
               </p>
             </div>
           </div>
 
           {/* Action Buttons Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Live Refresh Button inside Report */}
+            {onRefreshData && (
+              <button
+                type="button"
+                onClick={onRefreshData}
+                disabled={isRefreshing}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-700/70 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60"
+                title="Google Sheet एवं GitHub से नवीनतम डेटा अभी सिंक करें"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>लाइव डेटा सिंक</span>
+              </button>
+            )}
+
             {/* Excel Export Button */}
             <button
               type="button"

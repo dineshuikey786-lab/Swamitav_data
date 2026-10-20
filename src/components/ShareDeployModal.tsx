@@ -21,6 +21,13 @@ import {
   KeyRound,
 } from 'lucide-react';
 
+import {
+  DEFAULT_GITHUB_REPO,
+  DEFAULT_GOOGLE_SHEET_URL,
+  extractCsvFromInitialDataTs,
+  buildGoogleSheetCandidateUrls,
+} from '../utils/patwariAnalytics';
+
 interface ShareDeployModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -31,6 +38,7 @@ interface ShareDeployModalProps {
   patwarisCount?: number;
   userEmail?: string;
   currentCsv?: string;
+  onPullData?: (csvText: string, sourceLabel: string) => void;
 }
 
 type DeployTab = 'github' | 'netlify' | 'live' | 'vercel';
@@ -40,16 +48,17 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   onClose,
   publicUrl,
   sheetUrl,
-  latestDate = '13-10-2026',
-  recordsCount = 480,
+  latestDate = '20-10-2026',
+  recordsCount = 1280,
   patwarisCount = 36,
   userEmail = 'dineshuikey786@gmail.com',
   currentCsv = '',
+  onPullData,
 }) => {
   const [activeTab, setActiveTab] = useState<DeployTab>('github');
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [linkMode, setLinkMode] = useState<'live' | 'base'>('live');
-  const [githubRepoName, setGithubRepoName] = useState('dineshuikey786/patwari-revenue-dashboard');
+  const [githubRepoName, setGithubRepoName] = useState(DEFAULT_GITHUB_REPO);
   const [githubToken, setGithubToken] = useState('');
   const [commitMessage, setCommitMessage] = useState(
     `Update Patwari Dashboard data (${recordsCount} records, latest: ${latestDate})`
@@ -61,6 +70,7 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
     remoteUrl: string;
   } | null>(null);
   const [isPushing, setIsPushing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [pushResult, setPushResult] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -98,9 +108,8 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   if (!isOpen) return null;
 
   // Build live deep link with date and Google Sheet link if configured
-  const liveSyncUrl = sheetUrl && sheetUrl.trim()
-    ? `${publicUrl}?date=${latestDate}&sheet=${encodeURIComponent(sheetUrl.trim())}`
-    : `${publicUrl}?date=${latestDate}`;
+  const effectiveSheet = (sheetUrl && sheetUrl.trim()) || DEFAULT_GOOGLE_SHEET_URL;
+  const liveSyncUrl = `${publicUrl}?date=${latestDate}&sheet=${encodeURIComponent(effectiveSheet)}`;
 
   const currentActiveUrl = linkMode === 'live' ? liveSyncUrl : publicUrl;
 
@@ -110,21 +119,166 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
     setTimeout(() => setCopiedType(null), 3000);
   };
 
+  const normalizedRepoSlug = githubRepoName.includes('/')
+    ? githubRepoName.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '')
+    : `dineshuikey786-lab/${githubRepoName}`;
+
+  const handlePullLatestFromGithubAndSheet = async () => {
+    setIsPulling(true);
+    setPushResult({
+      type: 'info',
+      text: `GitHub (${normalizedRepoSlug}) और लाइव Google Sheet से नवीनतम डेटा पुल एवं सिंक किया जा रहा है...`,
+    });
+
+    try {
+      // 1. Try server /api/github/pull endpoint first
+      try {
+        const res = await fetch(
+          `/api/github/pull?repo=${encodeURIComponent(normalizedRepoSlug)}&branch=main&_cb=${Date.now()}`,
+          { cache: 'no-store' }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.csv) {
+            onPullData?.(data.csv, `GitHub (${normalizedRepoSlug}) एवं लाइव Google Sheet से`);
+            setPushResult({
+              type: 'success',
+              text: `नवीनतम डेटा सफलतापूर्वक पुल हो गया! कुल ${data.recordCount} रिकॉर्ड्स, नवीनतम दिनांक: ${data.latestDate}`,
+              repoWebUrl: `https://github.com/${normalizedRepoSlug}`,
+            });
+            setIsPulling(false);
+            return;
+          }
+        }
+      } catch {}
+
+      // 2. Serverless / Netlify client-side fallback: fetch directly from live Google Sheet and GitHub raw
+      let pulledCsv = '';
+      const sheetCandidates = buildGoogleSheetCandidateUrls(effectiveSheet, Date.now());
+      for (const candidateUrl of sheetCandidates) {
+        try {
+          const sRes = await fetch(candidateUrl, { cache: 'no-store' });
+          if (sRes.ok) {
+            const text = await sRes.text();
+            if (text && !text.trim().startsWith('<!DOCTYPE html') && !text.trim().startsWith('<html')) {
+              pulledCsv = text;
+              break;
+            }
+          }
+        } catch {}
+      }
+
+      if (!pulledCsv) {
+        const rawGhUrl = `https://raw.githubusercontent.com/${normalizedRepoSlug}/main/src/data/initialData.ts?_cb=${Date.now()}`;
+        const ghRes = await fetch(rawGhUrl, { cache: 'no-store' });
+        if (ghRes.ok) {
+          const ghText = await ghRes.text();
+          pulledCsv = extractCsvFromInitialDataTs(ghText);
+        }
+      }
+
+      if (pulledCsv) {
+        onPullData?.(pulledCsv, `GitHub (${normalizedRepoSlug}) एवं लाइव Google Sheet से`);
+        setPushResult({
+          type: 'success',
+          text: `GitHub (${normalizedRepoSlug}) और लाइव Google Sheet से ताज़ा डेटा सफलतापूर्वक अपडेट हो गया!`,
+          repoWebUrl: `https://github.com/${normalizedRepoSlug}`,
+        });
+      } else {
+        setPushResult({
+          type: 'error',
+          text: 'GitHub रिपॉजिटरी से डेटा पुल करने में समस्या आई। कृपया रिपॉजिटरी नाम जांचें।',
+        });
+      }
+    } catch (err: any) {
+      setPushResult({
+        type: 'error',
+        text: err?.message || 'डेटा पुल करने में त्रुटि आई।',
+      });
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
   const handleCommitOrPushToGithub = async (withRemoteToken: boolean) => {
     setIsPushing(true);
     setPushResult({
       type: 'info',
       text: withRemoteToken
-        ? 'वर्तमान डेटा initialData.ts में सेव करके सीधे GitHub रिपॉजिटरी पर पुश किया जा रहा है...'
+        ? `वर्तमान डेटा (${recordsCount} रिकॉर्ड्स, दिनांक ${latestDate}) को सीधे GitHub (${normalizedRepoSlug}) पर पुश किया जा रहा है...`
         : 'वर्तमान डैशबोर्ड डेटा को src/data/initialData.ts और स्थानीय Git रिपॉजिटरी में कमिट किया जा रहा है...',
     });
 
     try {
+      // If token is provided, also support direct GitHub Contents REST API push (works on Netlify & browser)
+      if (withRemoteToken && githubToken.trim() && currentCsv) {
+        const token = githubToken.trim();
+        const safeCsv = currentCsv.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+        const fileContent = `// Initial raw dataset provided from Patwari revenue monitoring (Tamia / Chhindwara circle)\nexport const INITIAL_CSV_RAW = \`${safeCsv.trim()}\`;\n`;
+        const apiUrl = `https://api.github.com/repos/${normalizedRepoSlug}/contents/src/data/initialData.ts`;
+
+        try {
+          const getRes = await fetch(`${apiUrl}?ref=main`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+            },
+          });
+          const existingMeta = getRes.ok ? await getRes.json() : null;
+          const base64Content = btoa(unescape(encodeURIComponent(fileContent)));
+
+          const putRes = await fetch(apiUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: commitMessage.trim() || `Update Patwari Dashboard data (${latestDate})`,
+              content: base64Content,
+              sha: existingMeta?.sha,
+              branch: 'main',
+            }),
+          });
+
+          if (putRes.ok) {
+            const putData = await putRes.json();
+            const shortSha = putData?.commit?.sha?.slice(0, 7) || 'updated';
+            setGitStatus({
+              branch: 'main',
+              commitHash: shortSha,
+              commitMessage,
+              remoteUrl: normalizedRepoSlug,
+            });
+            setPushResult({
+              type: 'success',
+              text: `सफलतापूर्वक GitHub रिपॉजिटरी (${normalizedRepoSlug}) पर पुश हो गया! Netlify अब स्वचालित रूप से नया डेटा (${latestDate}) डिप्लॉय करेगा।`,
+              repoWebUrl: `https://github.com/${normalizedRepoSlug}`,
+              commitHash: shortSha,
+            });
+            // Also sync local server state if available
+            fetch('/api/github/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                repoUrl: normalizedRepoSlug,
+                commitMessage: commitMessage.trim(),
+                branch: 'main',
+                csv: currentCsv,
+              }),
+            }).catch(() => {});
+            setIsPushing(false);
+            return;
+          }
+        } catch {}
+      }
+
       const res = await fetch('/api/github/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          repoUrl: githubRepoName.trim(),
+          repoUrl: normalizedRepoSlug,
           githubToken: withRemoteToken ? githubToken.trim() : '',
           commitMessage: commitMessage.trim() || `Update Patwari Dashboard data (${latestDate})`,
           branch: 'main',
@@ -145,13 +299,13 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
             branch: prev?.branch || 'main',
             commitHash: data.commitHash,
             commitMessage: commitMessage,
-            remoteUrl: githubRepoName,
+            remoteUrl: normalizedRepoSlug,
           }));
         }
         setPushResult({
           type: 'success',
           text: data.message || 'डेटा सफलतापूर्वक Git में सुरक्षित हो गया!',
-          repoWebUrl: data.repoWebUrl,
+          repoWebUrl: data.repoWebUrl || `https://github.com/${normalizedRepoSlug}`,
           commitHash: data.commitHash,
         });
       }
@@ -179,10 +333,6 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
   };
 
   const whatsappMessage = `📊 पटवारी प्रगति एवं राजस्व निगरानी डैशबोर्ड (वृत्त: तामिया):\n📅 अद्यतन स्थिति: ${latestDate}\n📂 कुल रिकॉर्ड्स: ${recordsCount} (${patwarisCount} पटवारी)\n\nलाइव डैशबोर्ड देखने के लिए क्लिक करें:\n${currentActiveUrl}`;
-
-  const normalizedRepoSlug = githubRepoName.includes('/')
-    ? githubRepoName.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
-    : `dineshuikey786/${githubRepoName}`;
 
   const gitPushCommand = `git remote set-url origin https://github.com/${normalizedRepoSlug}.git 2>/dev/null || git remote add origin https://github.com/${normalizedRepoSlug}.git\ngit branch -M main\ngit push -u origin main`;
 
@@ -524,18 +674,28 @@ export const ShareDeployModal: React.FC<ShareDeployModalProps> = ({
                 <div className="flex flex-wrap items-center gap-2.5 pt-1">
                   <button
                     type="button"
-                    disabled={isPushing}
+                    disabled={isPulling || isPushing}
+                    onClick={handlePullLatestFromGithubAndSheet}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-lg active:scale-95"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isPulling ? 'animate-spin' : ''}`} />
+                    <span>GitHub एवं Google Sheet से ताज़ा डेटा पुल करें</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isPushing || isPulling}
                     onClick={() => handleCommitOrPushToGithub(false)}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-lg active:scale-95"
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-lg active:scale-95"
                   >
                     <GitCommit className="h-4 w-4" />
-                    <span>वर्तमान डेटा कोडबेस (initialData.ts) व Git में कमिट करें</span>
+                    <span>कोडबेस (initialData.ts) व Git में कमिट करें</span>
                   </button>
 
                   {githubToken.trim() && (
                     <button
                       type="button"
-                      disabled={isPushing}
+                      disabled={isPushing || isPulling}
                       onClick={() => handleCommitOrPushToGithub(true)}
                       className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-lg active:scale-95"
                     >

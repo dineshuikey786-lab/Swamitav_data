@@ -14,21 +14,31 @@
   from = "/api/sync-sheet"
   to = "/.netlify/functions/sync-sheet"
   status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/latest-sheet-data"
+  to = "/.netlify/functions/sync-sheet"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/api/gemini/analyze"
   to = "/.netlify/functions/gemini-analyze"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/api/gemini-audit"
   to = "/.netlify/functions/gemini-analyze"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/api/save-sync"
   to = "/.netlify/functions/save-sync"
   status = 200
+  force = true
 
 # Fallback for React SPA routing
 [[redirects]]

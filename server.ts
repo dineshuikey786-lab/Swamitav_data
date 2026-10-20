@@ -534,18 +534,33 @@ Provide a comprehensive, high-thinking revenue report and clear recommendations.
 });
 
 // Mount Vite middleware in development or serve static files in production
-async function setupServer() {
+function setupServer() {
   if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
+    let viteMiddleware: any = null;
+    const viteReadyPromise = (async () => {
+      try {
+        const { createServer: createViteServer } = await import('vite');
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: 'spa',
+        });
+        viteMiddleware = vite.middlewares;
+      } catch (err) {
+        console.error('Vite middleware initialization error:', err);
+      }
+    })();
+
+    app.use(async (req, res, next) => {
+      await viteReadyPromise;
+      if (viteMiddleware) {
+        return viteMiddleware(req, res, next);
+      }
+      next();
     });
-    app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

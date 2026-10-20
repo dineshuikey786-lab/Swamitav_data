@@ -1,7 +1,7 @@
 // Netlify Serverless Function for Google Sheets & CSV live sync
 // Path: /.netlify/functions/sync-sheet
 
-import { INITIAL_CSV_RAW } from '../../src/data/initialData.ts';
+import { INITIAL_CSV_RAW } from '../../src/data/initialData';
 import {
   DEFAULT_GOOGLE_SHEET_URL,
   buildGoogleSheetCandidateUrls,
@@ -10,7 +10,7 @@ import {
   computeDatasetFingerprint,
   mergeSyncedRecordsWithHistory,
   serializeRecordsToCsv,
-} from '../../src/utils/patwariAnalytics.ts';
+} from '../../src/utils/patwariAnalytics';
 
 export const handler = async (event: any) => {
   const headers = {

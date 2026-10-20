@@ -6,8 +6,13 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
+  NPM_FLAGS = "--legacy-peer-deps"
 
 # Redirect API calls to Netlify Serverless Functions
 [[redirects]]
@@ -19,6 +24,12 @@
 [[redirects]]
   from = "/api/latest-sheet-data"
   to = "/.netlify/functions/sync-sheet"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/github/*"
+  to = "/.netlify/functions/github-sync"
   status = 200
   force = true
 

@@ -931,23 +931,26 @@ export function calculateStatusSlices(
   kpis: OverallKpis,
   mode: 'pipeline' | 'target' = 'pipeline'
 ): StatusSlice[] {
-  const initiatedTotal = kpis.registryInitiated || 1;
   const targetTotal = kpis.totalPlots || 1;
 
   const completed = kpis.completed;
   const submittedAndInProcess = (kpis.submitted || 0) + (kpis.registrationIn || 0);
   const verifiedOnly = Math.max(0, kpis.patwariVerification - completed - submittedAndInProcess);
   const pendingVerification = Math.max(0, kpis.registryInitiated - kpis.patwariVerification);
+  const pipelineTotal = Math.max(
+    completed + submittedAndInProcess + verifiedOnly + pendingVerification,
+    kpis.registryInitiated,
+    1
+  );
 
   if (mode === 'pipeline') {
-    // Exact initiated workload pipeline breakdown (sum = kpis.registryInitiated)
     return [
       {
         id: 'completed',
         label: 'Final Completed',
         labelHi: 'पूर्ण पंजीयन (अभिलेख वितरित)',
         count: completed,
-        percentage: Math.round((completed / initiatedTotal) * 10000) / 100,
+        percentage: Math.round((completed / pipelineTotal) * 10000) / 100,
         gradientId: 'gradCompleted',
         colorFrom: '#10b981',
         colorTo: '#059669',
@@ -958,7 +961,7 @@ export function calculateStatusSlices(
         label: 'Submitted / In-Process',
         labelHi: 'प्रस्तुत एवं पंजीयन प्रक्रियाधीन',
         count: submittedAndInProcess,
-        percentage: Math.round((submittedAndInProcess / initiatedTotal) * 10000) / 100,
+        percentage: Math.round((submittedAndInProcess / pipelineTotal) * 10000) / 100,
         gradientId: 'gradSubmitted',
         colorFrom: '#06b6d4',
         colorTo: '#2563eb',
@@ -969,7 +972,7 @@ export function calculateStatusSlices(
         label: 'Verified Pipeline',
         labelHi: 'पटवारी सत्यापन पूर्ण (अग्रिम चरण)',
         count: verifiedOnly,
-        percentage: Math.round((verifiedOnly / initiatedTotal) * 10000) / 100,
+        percentage: Math.round((verifiedOnly / pipelineTotal) * 10000) / 100,
         gradientId: 'gradVerified',
         colorFrom: '#8b5cf6',
         colorTo: '#6366f1',
@@ -978,9 +981,9 @@ export function calculateStatusSlices(
       {
         id: 'pending_verification',
         label: 'Pending Verification',
-        labelHi: 'पटवारी सत्यापन स्तर पर लंबित (बॉटलनेक)',
+        labelHi: 'पटवारी सत्यापन स्तर पर लंबित',
         count: pendingVerification,
-        percentage: Math.round((pendingVerification / initiatedTotal) * 10000) / 100,
+        percentage: Math.round((pendingVerification / pipelineTotal) * 10000) / 100,
         gradientId: 'gradInitiated',
         colorFrom: '#f59e0b',
         colorTo: '#ea580c',

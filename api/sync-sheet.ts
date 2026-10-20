@@ -1,4 +1,4 @@
-import { INITIAL_CSV_RAW } from '../src/data/initialData.ts';
+import { INITIAL_CSV_RAW } from '../src/data/initialData';
 import {
   DEFAULT_GOOGLE_SHEET_URL,
   buildGoogleSheetCandidateUrls,
@@ -7,7 +7,7 @@ import {
   computeDatasetFingerprint,
   mergeSyncedRecordsWithHistory,
   serializeRecordsToCsv,
-} from '../src/utils/patwariAnalytics.ts';
+} from '../src/utils/patwariAnalytics';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');

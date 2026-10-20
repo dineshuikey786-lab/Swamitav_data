@@ -22,7 +22,7 @@ import {
   chooseFresherDataset,
   PatwariRecord,
 } from './utils/patwariAnalytics';
-import { exportDashboardToExcel } from './utils/exportUtils';
+import { exportDashboardToExcel, PdfReportMode } from './utils/exportUtils';
 import { Header } from './components/Header';
 import { KpiCards } from './components/KpiCards';
 import { FunnelChart } from './components/FunnelChart';
@@ -176,8 +176,14 @@ export default function App() {
   const [editingRecord, setEditingRecord] = useState<PatwariRecord | null>(null);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportModalMode, setReportModalMode] = useState<PdfReportMode>('full');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [dismissAlert, setDismissAlert] = useState(false);
+
+  const handleOpenReportModal = useCallback((mode: PdfReportMode = 'full') => {
+    setReportModalMode(mode);
+    setIsReportModalOpen(true);
+  }, []);
 
   const publicAppUrl = 'https://ais-pre-dkicofizgvrhuzhfvnka7t-119625251578.asia-southeast1.run.app';
 
@@ -660,7 +666,7 @@ export default function App() {
           setIsAddModalOpen(true);
         }}
         onOpenAiDrawer={() => setIsAiDrawerOpen(true)}
-        onOpenReportModal={() => setIsReportModalOpen(true)}
+        onOpenReportModal={(mode) => handleOpenReportModal(mode || 'full')}
         onManualRefresh={handleManualRefresh}
         onUpdateFromGoogleSheet={handleUpdateFromGoogleSheet}
         onExportExcel={handleExportExcel}
@@ -900,6 +906,7 @@ export default function App() {
           kpis={kpis}
           comparison={comparison}
           selectedPeriod={selectedPeriod}
+          onOpenCardReport={() => handleOpenReportModal('cards')}
         />
 
         {/* Section Navigation Tabs */}
@@ -983,16 +990,42 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setIsReportModalOpen(true)}
+              onClick={() => handleOpenReportModal('cards')}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
+                isDark
+                  ? 'bg-teal-950/50 hover:bg-teal-900/70 text-teal-300 border-teal-700/80 shadow-sm'
+                  : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-300 shadow-sm'
+              }`}
+              title="केवल डैशबोर्ड कार्ड डेटा का अलग PDF देखें एवं डाउनलोड करें (Separate Card Data PDF)"
+            >
+              <Layers className="h-3.5 w-3.5 text-teal-500" />
+              <span>कार्ड डेटा PDF</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenReportModal('charts')}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
+                isDark
+                  ? 'bg-indigo-950/50 hover:bg-indigo-900/70 text-indigo-300 border-indigo-700/80 shadow-sm'
+                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-300 shadow-sm'
+              }`}
+              title="केवल डैशबोर्ड चार्ट्स (बार, पाई, ट्रेंड, डोनट) का अलग PDF देखें एवं डाउनलोड करें (Separate Charts PDF)"
+            >
+              <BarChart3 className="h-3.5 w-3.5 text-indigo-500" />
+              <span>चार्ट्स PDF</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenReportModal('full')}
               className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
                 isDark
                   ? 'bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border-rose-800/80 shadow-sm'
                   : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-300 shadow-sm'
               }`}
-              title="शासकीय PDF रिपोर्ट प्रतिवेदन देखें एवं डाउनलोड करें"
+              title="संपूर्ण शासकीय PDF रिपोर्ट प्रतिवेदन देखें एवं डाउनलोड करें"
             >
               <FileText className="h-3.5 w-3.5 text-rose-500" />
-              <span>PDF रिपोर्ट</span>
+              <span>संपूर्ण PDF रिपोर्ट</span>
             </button>
             <div
               className={`text-xs px-2 font-medium ${
@@ -1012,6 +1045,7 @@ export default function App() {
             allRecords={records}
             selectedDate={selectedDate}
             onSelectPatwari={(name) => setSelectedPatwariName(name)}
+            onOpenChartsReport={() => handleOpenReportModal('charts')}
           />
         )}
 
@@ -1124,8 +1158,10 @@ export default function App() {
           comparison={comparison}
           selectedPeriod={selectedPeriod}
           records={currentRecords}
+          allRecords={records}
           matrixRows={dateMatrixRows}
           dates={matrixDates}
+          initialReportMode={reportModalMode}
           onSelectDate={setSelectedDate}
           onRefreshData={handleManualRefresh}
           isRefreshing={isUpdatingSheet}

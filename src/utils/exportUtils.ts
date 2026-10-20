@@ -296,33 +296,114 @@ export function exportDashboardToExcel(options: ExportDataOptions): void {
   XLSX.writeFile(wb, fileName);
 }
 
+export type PdfReportMode = 'cards' | 'charts' | 'full';
+
+export interface PdfReportMetadata {
+  mode: PdfReportMode;
+  fileName: string;
+  titleHindi: string;
+  titleEnglish: string;
+  subtitle: string;
+  summaryLine: string;
+}
+
 /**
- * Downloads a DOM element as a high-quality formatted PDF report
+ * Generates standardized metadata and filenames for separate Card Data PDF, Charts PDF, and Full Administrative PDF
+ */
+export function buildPdfReportMetadata(
+  mode: PdfReportMode,
+  selectedDate: string,
+  kpis: OverallKpis
+): PdfReportMetadata {
+  const cleanDate = (selectedDate || 'latest').replace(/[^a-zA-Z0-9-]/g, '_');
+
+  if (mode === 'cards') {
+    return {
+      mode: 'cards',
+      fileName: `Tamia_Dashboard_Card_Data_${cleanDate}.pdf`,
+      titleHindi: 'डैशबोर्ड प्रमुख सूचकांक एवं कार्ड डेटा प्रतिवेदन',
+      titleEnglish: 'Dashboard KPI Cards & Workflow Pipeline Summary Report',
+      subtitle: `वृत्त: तामिया • जिला: छिंदवाड़ा (म.प्र.) • समीक्षा दिनांक: ${selectedDate}`,
+      summaryLine: `कुल ग्राम: ${kpis.totalVillages} | कुल भूखंड: ${kpis.totalPlots} | प्रारंभ: ${kpis.registryInitiated} | सत्यापित: ${kpis.patwariVerification} | पूर्ण: ${kpis.completed} (${kpis.pctCompleted}%)`,
+    };
+  }
+
+  if (mode === 'charts') {
+    return {
+      mode: 'charts',
+      fileName: `Tamia_Dashboard_Charts_Analytics_${cleanDate}.pdf`,
+      titleHindi: 'डैशबोर्ड विजुअल चार्ट्स एवं ग्राफिकल विश्लेषण प्रतिवेदन',
+      titleEnglish: 'Dashboard Visual Charts & Graphical Analytics Report (Bar, Pie, Trend & Donut)',
+      subtitle: `वृत्त: तामिया • जिला: छिंदवाड़ा (म.प्र.) • समीक्षा दिनांक: ${selectedDate}`,
+      summaryLine: `बार चार्ट • पाई चार्ट • दिनांकवार ट्रेंड लाइन • लक्ष्य डोनट मीटर • कुल पूर्ण: ${kpis.completed} (${kpis.pctCompleted}%)`,
+    };
+  }
+
+  return {
+    mode: 'full',
+    fileName: `Tamia_Patwari_Administrative_Report_${cleanDate}.pdf`,
+    titleHindi: 'संपूर्ण शासकीय पटवारी प्रगति एवं राजस्व प्रतिवेदन',
+    titleEnglish: 'Complete Official Administrative Patwari Progress Report',
+    subtitle: `वृत्त: तामिया • जिला: छिंदवाड़ा (म.प्र.) • समीक्षा दिनांक: ${selectedDate}`,
+    summaryLine: `कुल ग्राम: ${kpis.totalVillages} | सक्रिय पटवारी: ${kpis.totalPatwaris} | पूर्ण पंजीयन: ${kpis.completed} (${kpis.pctCompleted}%)`,
+  };
+}
+
+export interface DownloadPdfOptions {
+  orientation?: 'portrait' | 'landscape';
+  backgroundColor?: string;
+}
+
+/**
+ * Downloads a DOM element as a high-quality formatted PDF report.
+ * Automatically hides elements with [data-pdf-ignore="true"] and temporarily reveals
+ * elements with [data-pdf-show="true"] during capture.
  */
 export async function downloadElementAsPdf(
   element: HTMLElement,
   fileName: string,
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
+  options?: DownloadPdfOptions
 ): Promise<void> {
   onProgress?.('पीडीएफ तैयार हो रहा है (Rendering PDF)...');
 
   const { toPng } = await import('html-to-image');
   const { jsPDF } = await import('jspdf');
 
+  // Temporarily reveal any print/PDF-only header/table blocks inside the target element
+  const pdfOnlyNodes = Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-show="true"]'));
+  const previousDisplays = pdfOnlyNodes.map((node) => node.style.display);
+  pdfOnlyNodes.forEach((node) => {
+    node.style.display = 'block';
+  });
+
   let imgData: string;
   try {
     imgData = await toPng(element, {
-      quality: 0.95,
+      quality: 0.96,
       pixelRatio: 2,
-      backgroundColor: '#ffffff',
+      backgroundColor: options?.backgroundColor || '#ffffff',
       fontEmbedCSS: '',
       skipFonts: true,
+      filter: (node: Node) => {
+        if (node instanceof HTMLElement && node.dataset?.pdfIgnore === 'true') {
+          return false;
+        }
+        return true;
+      },
     });
   } catch (canvasErr) {
+    pdfOnlyNodes.forEach((node, idx) => {
+      node.style.display = previousDisplays[idx];
+    });
     console.warn('Canvas capture fallback to print:', canvasErr);
     window.print();
     onProgress?.('प्रिंटर / PDF विंडो खोली गई');
     return;
+  } finally {
+    pdfOnlyNodes.forEach((node, idx) => {
+      node.style.display = previousDisplays[idx];
+    });
   }
 
   onProgress?.('पेज फॉर्मेटिंग एवं सेव हो रहा है...');
@@ -335,7 +416,7 @@ export async function downloadElementAsPdf(
   });
 
   const pdf = new jsPDF({
-    orientation: 'portrait',
+    orientation: options?.orientation || 'portrait',
     unit: 'mm',
     format: 'a4',
   });
@@ -365,3 +446,4 @@ export async function downloadElementAsPdf(
   pdf.save(fileName);
   onProgress?.('डाउनलोड संपन्न (Download Complete)!');
 }
+

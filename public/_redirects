@@ -1,8 +1,12 @@
 # Netlify API & SPA redirect rules (evaluated before netlify.toml)
 /api/sync-sheet          /.netlify/functions/sync-sheet      200!
 /api/latest-sheet-data   /.netlify/functions/sync-sheet      200!
+/api/github/status       /.netlify/functions/github-sync     200!
+/api/github/pull         /.netlify/functions/github-sync     200!
+/api/github/push         /.netlify/functions/github-sync     200!
 /api/save-sync           /.netlify/functions/save-sync       200!
 /api/gemini/analyze      /.netlify/functions/gemini-analyze  200!
 /api/gemini-audit        /.netlify/functions/gemini-analyze  200!
 /*                       /index.html                         200
+
 

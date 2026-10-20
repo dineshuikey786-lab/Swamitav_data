@@ -68,7 +68,7 @@ function persistCsvToInitialDataFile(csvContent: string): boolean {
 }
 
 /**
- * Ensures the workspace has an initialized Git repository with a clean commit on branch main.
+ * Ensures the workspace has an initialized Git repository aligned with origin/main on branch main.
  */
 function ensureGitRepoInitialized(commitMsg = 'Sync latest Patwari dashboard data and configuration') {
   try {
@@ -82,6 +82,10 @@ function ensureGitRepoInitialized(commitMsg = 'Sync latest Patwari dashboard dat
           cwd: __dirname,
           stdio: 'pipe',
         });
+      } catch {}
+      try {
+        execSync('git fetch origin main --depth=5', { cwd: __dirname, stdio: 'pipe', timeout: 8000 });
+        execSync('git reset --mixed origin/main', { cwd: __dirname, stdio: 'pipe' });
       } catch {}
     } else {
       try {
@@ -100,6 +104,15 @@ function ensureGitRepoInitialized(commitMsg = 'Sync latest Patwari dashboard dat
           });
         } catch {}
       }
+      // If origin/main exists and HEAD has an unrelated orphan history, align onto origin/main
+      try {
+        execSync('git rev-parse --verify origin/main', { cwd: __dirname, stdio: 'pipe' });
+        try {
+          execSync('git merge-base HEAD origin/main', { cwd: __dirname, stdio: 'pipe' });
+        } catch {
+          execSync('git reset --soft origin/main', { cwd: __dirname, stdio: 'pipe' });
+        }
+      } catch {}
     }
     execSync('git add -A', { cwd: __dirname, stdio: 'pipe' });
     const statusOut = execSync('git status --porcelain', { cwd: __dirname, encoding: 'utf8' }).trim();

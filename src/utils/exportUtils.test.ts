@@ -11,6 +11,7 @@ import {
   buildPatwariPerformanceSheetData,
   buildVillageRegisterSheetData,
   buildDateMatrixSheetData,
+  buildPdfReportMetadata,
 } from './exportUtils.ts';
 
 const SAMPLE_CSV = `S.No,Village ▲,LGD Code,Patwari Name,Plots,Beneficiaries,Registry_Initiated,Patwari_Verification,Submitted,Registration in,Completed,% Completed,Date
@@ -76,3 +77,19 @@ test('buildDateMatrixSheetData generates multi-date comparison rows', () => {
   assert.ok(header.includes('11-10-2026 (पूर्ण)'));
   assert.ok(header.includes('12-10-2026 (पूर्ण)'));
 });
+
+test('buildPdfReportMetadata returns distinct filenames and titles for cards, charts, and full PDF reports', () => {
+  const records = parseCSVDataset(SAMPLE_CSV);
+  const kpis = calculateKpis(records.filter((r) => r.date === '12-10-2026'));
+
+  const cardsMeta = buildPdfReportMetadata('cards', '20-10-2026', kpis);
+  const chartsMeta = buildPdfReportMetadata('charts', '20-10-2026', kpis);
+  const fullMeta = buildPdfReportMetadata('full', '20-10-2026', kpis);
+
+  assert.equal(cardsMeta.fileName, 'Tamia_Dashboard_Card_Data_20-10-2026.pdf');
+  assert.equal(chartsMeta.fileName, 'Tamia_Dashboard_Charts_Analytics_20-10-2026.pdf');
+  assert.equal(fullMeta.fileName, 'Tamia_Patwari_Administrative_Report_20-10-2026.pdf');
+  assert.ok(cardsMeta.titleHindi.includes('कार्ड डेटा'));
+  assert.ok(chartsMeta.titleHindi.includes('चार्ट्स'));
+});
+

@@ -29,7 +29,7 @@ interface HeaderProps {
   onOpenSyncModal: () => void;
   onOpenAddModal: () => void;
   onOpenAiDrawer: () => void;
-  onOpenReportModal: () => void;
+  onOpenReportModal: (mode?: 'cards' | 'charts' | 'full') => void;
   onManualRefresh: () => void;
   onUpdateFromGoogleSheet?: () => void;
   onExportExcel?: () => void;
@@ -374,21 +374,51 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="sm:hidden">Excel</span>
             </button>
 
-            {/* Official PDF Report Button */}
-            <button
-              type="button"
-              onClick={onOpenReportModal}
-              title="शासकीय PDF प्रतिवेदन प्रारूप देखें, डाउनलोड करें अथवा प्रिंट करें"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
-                isDark
-                  ? 'bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border-rose-700/80 shadow-sm'
-                  : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-300 shadow-sm'
-              }`}
-            >
-              <FileText className="h-3.5 w-3.5 text-rose-500" />
-              <span className="hidden sm:inline">PDF रिपोर्ट</span>
-              <span className="sm:hidden">PDF</span>
-            </button>
+            {/* Official PDF Report Buttons (Separate Card Data PDF, Charts PDF & Full Report) */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onOpenReportModal('cards')}
+                title="केवल कार्ड डेटा का अलग PDF जनरेट एवं डाउनलोड करें (Separate Card Data PDF)"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border-emerald-700/80 shadow-sm'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-sm'
+                }`}
+              >
+                <FileText className="h-3.5 w-3.5 text-emerald-500" />
+                <span>कार्ड PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onOpenReportModal('charts')}
+                title="केवल डैशबोर्ड चार्ट्स का अलग PDF जनरेट एवं डाउनलोड करें (Separate Charts PDF)"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border-indigo-700/80 shadow-sm'
+                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-300 shadow-sm'
+                }`}
+              >
+                <FileText className="h-3.5 w-3.5 text-indigo-500" />
+                <span>चार्ट्स PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onOpenReportModal('full')}
+                title="संपूर्ण शासकीय PDF प्रतिवेदन प्रारूप देखें, डाउनलोड करें अथवा प्रिंट करें"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border-rose-700/80 shadow-sm'
+                    : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-300 shadow-sm'
+                }`}
+              >
+                <FileText className="h-3.5 w-3.5 text-rose-500" />
+                <span className="hidden sm:inline">संपूर्ण PDF</span>
+                <span className="sm:hidden">PDF</span>
+              </button>
+            </div>
 
             {/* Public Share & Netlify / GitHub Deploy Button */}
             <button

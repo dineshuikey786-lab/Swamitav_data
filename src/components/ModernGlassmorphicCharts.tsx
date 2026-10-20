@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   BarChart3,
   PieChart as PieIcon,
@@ -15,6 +15,9 @@ import {
   Users,
   Maximize2,
   Minimize2,
+  Download,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -26,6 +29,7 @@ import {
   DateTrendPoint,
   StatusSlice,
 } from '../utils/patwariAnalytics';
+import { downloadElementAsPdf, buildPdfReportMetadata } from '../utils/exportUtils';
 
 interface ModernGlassmorphicChartsProps {
   kpis: OverallKpis;
@@ -33,6 +37,7 @@ interface ModernGlassmorphicChartsProps {
   allRecords: PatwariRecord[];
   selectedDate: string;
   onSelectPatwari?: (patwariName: string) => void;
+  onOpenChartsReport?: () => void;
 }
 
 type ActiveChartTab = 'all' | 'bar' | 'pie' | 'trend' | 'donut';
@@ -44,9 +49,14 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
   allRecords,
   selectedDate,
   onSelectPatwari,
+  onOpenChartsReport,
 }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+
+  const chartsSectionRef = useRef<HTMLElement>(null);
+  const [isDownloadingChartsPdf, setIsDownloadingChartsPdf] = useState(false);
+  const [chartsPdfStatus, setChartsPdfStatus] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<ActiveChartTab>('all');
   const [barMetric, setBarMetric] = useState<BarMetric>('completed');
@@ -228,8 +238,60 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
     };
   }, [trendData]);
 
+  const handleDownloadChartsPdf = async () => {
+    if (!chartsSectionRef.current || isDownloadingChartsPdf) return;
+    try {
+      setIsDownloadingChartsPdf(true);
+      const meta = buildPdfReportMetadata('charts', selectedDate, kpis);
+      await downloadElementAsPdf(
+        chartsSectionRef.current,
+        meta.fileName,
+        (msg) => setChartsPdfStatus(msg),
+        {
+          orientation: 'portrait',
+          backgroundColor: isDark ? '#0f172a' : '#ffffff',
+        }
+      );
+      setTimeout(() => setChartsPdfStatus(null), 3500);
+    } catch (err) {
+      console.error('Failed to download charts PDF:', err);
+      setChartsPdfStatus('चार्ट्स PDF डाउनलोड में त्रुटि');
+      setTimeout(() => setChartsPdfStatus(null), 3500);
+    } finally {
+      setIsDownloadingChartsPdf(false);
+    }
+  };
+
   return (
-    <section className="space-y-4">
+    <section ref={chartsSectionRef} aria-label="डैशबोर्ड विजुअल चार्ट्स विश्लेषण" className="space-y-4">
+      {/* Hidden PDF-only Official Header Banner for Charts PDF Export */}
+      <div
+        data-pdf-show="true"
+        style={{ display: 'none' }}
+        className={`rounded-2xl border p-4 mb-3 ${
+          isDark
+            ? 'bg-slate-900 border-indigo-700/60 text-white'
+            : 'bg-indigo-50/90 border-indigo-300 text-slate-900'
+        }`}
+      >
+        <div className="flex items-center justify-between border-b pb-2 mb-2 border-indigo-500/30">
+          <div>
+            <div className="text-xs font-extrabold uppercase tracking-wider text-indigo-400">
+              मध्य प्रदेश शासन • राजस्व विभाग (वृत्त: तामिया, जिला: छिंदवाड़ा)
+            </div>
+            <h2 className="text-base font-black mt-0.5">
+              डैशबोर्ड विजुअल चार्ट्स एवं ग्राफिकल विश्लेषण प्रतिवेदन (Dashboard Charts PDF Report)
+            </h2>
+          </div>
+          <div className="text-right font-mono text-xs">
+            <div className="font-bold">समीक्षा दिनांक: {selectedDate}</div>
+            <div className="text-[11px] opacity-80">
+              कुल पूर्ण: {kpis.completed} / {kpis.totalPlots} ({kpis.pctCompleted}%)
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Glassmorphic Section Header & Controls */}
       <div
         className={`relative overflow-hidden rounded-3xl p-5 border backdrop-blur-xl transition-all duration-300 ${
@@ -242,7 +304,7 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
         <div className="absolute -top-24 -left-24 w-72 h-72 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -right-24 w-72 h-72 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="relative z-10 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div
               className={`p-2.5 rounded-2xl flex items-center justify-center shadow-inner border ${
@@ -254,7 +316,7 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
               <Sparkles className="h-6 w-6 animate-pulse" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2
                   className={`text-lg font-extrabold tracking-tight ${
                     isDark ? 'text-white' : 'text-slate-900'
@@ -263,14 +325,19 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
                   आधुनिक विजुअल एनालिटिक्स (Glassmorphic Visual Analytics)
                 </h2>
                 <span
-                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border backdrop-blur-md ${
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border backdrop-blur-md ${
                     isDark
                       ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
                       : 'bg-emerald-100/70 border-emerald-300 text-emerald-800'
                   }`}
                 >
-                  लाइव ग्रेडिएंट्स
+                  दिनांक: {selectedDate}
                 </span>
+                {chartsPdfStatus && (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-indigo-950/80 border border-indigo-600 text-indigo-200">
+                    {chartsPdfStatus}
+                  </span>
+                )}
               </div>
               <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                 बार चार्ट, पाई चार्ट, ट्रेंड लाइन एवं डोनट चार्ट द्वारा राजस्व प्रगति का 360° विश्लेषण
@@ -278,39 +345,83 @@ export const ModernGlassmorphicCharts: React.FC<ModernGlassmorphicChartsProps> =
             </div>
           </div>
 
-          {/* Chart View Mode Switcher Pills */}
+          {/* Right Toolbar: Separate Charts PDF Download + Chart View Mode Switcher */}
           <div
-            className={`flex items-center p-1 rounded-2xl border backdrop-blur-lg self-start md:self-auto overflow-x-auto max-w-full ${
-              isDark ? 'bg-slate-800/60 border-white/10' : 'bg-slate-100/80 border-slate-200'
-            }`}
+            data-pdf-ignore="true"
+            className="flex flex-wrap items-center gap-2.5"
           >
-            {[
-              { id: 'all', label: 'समग्र (All 4)', icon: Layers },
-              { id: 'bar', label: 'बार चार्ट', icon: BarChart3 },
-              { id: 'pie', label: 'पाई चार्ट', icon: PieIcon },
-              { id: 'trend', label: 'ट्रेंड लाइन', icon: TrendingUp },
-              { id: 'donut', label: 'डोनट चार्ट', icon: Target },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
+            {/* Separate Charts PDF Download Buttons */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleDownloadChartsPdf}
+                disabled={isDownloadingChartsPdf}
+                title="केवल डैशबोर्ड चार्ट्स एवं ग्राफ का अलग PDF डाउनलोड करें (Download Separate Charts PDF)"
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-60 ${
+                  isDark
+                    ? 'bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-200 border-indigo-600/80 shadow-sm'
+                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-300 shadow-sm'
+                }`}
+              >
+                {isDownloadingChartsPdf ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 text-indigo-500" />
+                )}
+                <span>चार्ट्स PDF डाउनलोड (Charts PDF)</span>
+              </button>
+
+              {onOpenChartsReport && (
                 <button
-                  key={tab.id}
                   type="button"
-                  onClick={() => setActiveTab(tab.id as ActiveChartTab)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center gap-1.5 whitespace-nowrap transition-all duration-200 ${
-                    isActive
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/20'
-                      : isDark
-                      ? 'text-slate-300 hover:text-white hover:bg-white/5'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                  onClick={onOpenChartsReport}
+                  title="शासकीय प्रारूप में चार्ट्स PDF प्रीव्यू एवं प्रिंट करें"
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1 transition cursor-pointer ${
+                    isDark
+                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
                   }`}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{tab.label}</span>
+                  <FileText className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>चार्ट्स प्रीव्यू</span>
                 </button>
-              );
-            })}
+              )}
+            </div>
+
+            {/* Chart View Mode Switcher Buttons */}
+            <div
+              className={`flex items-center p-1 rounded-2xl border backdrop-blur-lg self-start md:self-auto overflow-x-auto max-w-full ${
+                isDark ? 'bg-slate-800/60 border-white/10' : 'bg-slate-100/80 border-slate-200'
+              }`}
+            >
+              {[
+                { id: 'all', label: 'समग्र (All 4)', icon: Layers },
+                { id: 'bar', label: 'बार चार्ट', icon: BarChart3 },
+                { id: 'pie', label: 'पाई चार्ट', icon: PieIcon },
+                { id: 'trend', label: 'ट्रेंड लाइन', icon: TrendingUp },
+                { id: 'donut', label: 'डोनट चार्ट', icon: Target },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id as ActiveChartTab)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center gap-1.5 whitespace-nowrap transition-all duration-200 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/20'
+                        : isDark
+                        ? 'text-slate-300 hover:text-white hover:bg-white/5'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
